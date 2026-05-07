@@ -31,9 +31,11 @@ def load_deepseek_key():
     """加载 DeepSeek API Key"""
     try:
         with open(CONFIG_PATH, "r") as f:
-            return json.load(f).get("deepseek", {}).get("api_key", "")
+            key = json.load(f).get("deepseek", {}).get("api_key", "")
+            return key.strip() if key else ""
     except:
-        return os.environ.get("DEEPSEEK_API_KEY", "")
+        key = os.environ.get("DEEPSEEK_API_KEY", "")
+        return key.strip() if key else ""
 
 
 def load_toutiao_cookies():
