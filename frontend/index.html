@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Creator AI Toolbox - 内容创作者AI工具箱</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Noto Sans SC', 'Inter', sans-serif; }
+        .gradient-text {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .card-hover { transition: all 0.3s ease; }
+        .card-hover:hover { transform: translateY(-2px); box-shadow: 0 20px 40px rgba(102, 126, 234, 0.15); }
+        .pulse { animation: pulse 2s infinite; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .fade-in { animation: fadeIn 0.5s ease; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .hot-value { color: #ef4444; font-weight: 700; }
+        .hot-value-mid { color: #f59e0b; font-weight: 700; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="app()">
+    <!-- Navbar -->
+    <nav class="bg-white shadow-sm border-b sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-lg flex items-center justify-center">
+                    <span class="text-white font-bold text-sm">AI</span>
+                </div>
+                <span class="font-bold text-lg text-gray-800">Creator Toolbox</span>
+            </div>
+            <div class="flex gap-1">
+                <button @click="tab='hot'" :class="tab==='hot' ? 'bg-purple-100 text-purple-700' : 'text-gray-600 hover:bg-gray-100'"
+                    class="px-4 py-2 rounded-lg text-sm font-medium transition">🔥 热榜</button>
+                <button @click="tab='search'" :class="tab==='search' ? 'bg-purple-100 text-purple-700' : 'text-gray-600 hover:bg-gray-100'"
+                    class="px-4 py-2 rounded-lg text-sm font-medium transition">🔍 爆文</button>
+                <button @click="tab='rewrite'" :class="tab==='rewrite' ? 'bg-purple-100 text-purple-700' : 'text-gray-600 hover:bg-gray-100'"
+                    class="px-4 py-2 rounded-lg text-sm font-medium transition">✍️ 改写</button>
+                <button @click="tab='ideas'" :class="tab==='ideas' ? 'bg-purple-100 text-purple-700' : 'text-gray-600 hover:bg-gray-100'"
+                    class="px-4 py-2 rounded-lg text-sm font-medium transition">💡 选题</button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <header class="bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 text-white" x-show="tab==='hot'">
+        <div class="max-w-7xl mx-auto px-4 py-16 text-center">
+            <h1 class="text-4xl md:text-5xl font-black mb-4">用AI找到爆款选题</h1>
+            <p class="text-xl text-purple-100 mb-2">今日头条创作者专属 · 热榜分析 · 爆文搜索 · AI改写</p>
+            <p class="text-sm text-purple-200">让AI帮你写文章，把时间留给生活</p>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 py-8">
+        <!-- ========== 热榜 Tab ========== -->
+        <div x-show="tab==='hot'" x-transition class="space-y-6">
+            <!-- AI分析按钮 -->
+            <div class="flex justify-between items-center">
+                <h2 class="text-xl font-bold text-gray-800">📈 今日头条热榜</h2>
+                <button @click="analyzeHotboard()" :disabled="analyzing"
+                    class="bg-gradient-to-r from-purple-500 to-indigo-600 text-white px-6 py-2.5 rounded-xl font-medium text-sm hover:shadow-lg transition disabled:opacity-50">
+                    <span x-show="!analyzing">🤖 AI分析趋势</span>
+                    <span x-show="analyzing" class="pulse">分析中...</span>
+                </button>
+            </div>
+
+            <!-- 分类Tab -->
+            <div class="flex flex-wrap gap-1.5">
+                <template x-for="cat in hotCategories" :key="cat.id">
+                    <button @click="switchCategory(cat.id)"
+                        :class="hotCategory===cat.id ? 'bg-purple-600 text-white shadow-md' : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'"
+                        class="px-3.5 py-1.5 rounded-lg text-xs font-medium transition"
+                        x-text="cat.name"></button>
+                </template>
+            </div>
+
+            <!-- AI分析结果 -->
+            <div x-show="hotAnalysis" class="fade-in bg-white rounded-2xl shadow-sm border p-6 space-y-4" x-transition>
+                <div class="flex items-start gap-3">
+                    <span class="text-2xl">🧠</span>
+                    <div>
+                        <h3 class="font-bold text-gray-800 mb-1">AI趋势洞察</h3>
+                        <p class="text-gray-600" x-text="hotAnalysis.summary"></p>
+                    </div>
+                </div>
+                <div class="grid md:grid-cols-2 gap-4" x-show="hotAnalysis.opportunities?.length">
+                    <template x-for="op in hotAnalysis.opportunities">
+                        <div class="border border-purple-100 rounded-xl p-4 bg-purple-50/50">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="text-sm font-medium text-purple-700" x-text="op.topic"></span>
+                                <span class="text-xs px-2 py-0.5 rounded-full"
+                                    :class="op.difficulty==='低' ? 'bg-green-100 text-green-700' : op.difficulty==='中' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'"
+                                    x-text="'难度:'+op.difficulty"></span>
+                            </div>
+                            <p class="text-sm text-gray-600" x-text="op.angle"></p>
+                            <p class="text-xs text-gray-400 mt-1" x-text="'潜力: '+op.potential"></p>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- 热榜列表 - 可点击查看详情 -->
+            <div class="grid gap-3">
+                <template x-for="(item, i) in hotList" :key="i">
+                    <div @click="viewDetail(item)" 
+                        class="bg-white rounded-xl shadow-sm border p-4 card-hover flex items-center gap-4 cursor-pointer hover:border-purple-300 transition-colors">
+                        <span class="text-xl font-black w-8 text-center shrink-0"
+                            :class="i<3 ? 'text-red-500' : 'text-gray-400'"
+                            x-text="i+1"></span>
+                        <!-- 缩略图 -->
+                        <img :src="item.image_url" x-show="item.image_url" 
+                            class="w-10 h-10 rounded-lg object-cover shrink-0 bg-gray-100"
+                            @error="$event.target.style.display='none'">
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm font-medium text-gray-800 truncate" x-text="item.title"></p>
+                            <div class="flex items-center gap-2 mt-1">
+                                <span class="text-xs text-gray-400" x-text="item.label" x-show="item.label"></span>
+                                <template x-for="ic in item.interest_categories?.slice(0,2)">
+                                    <span class="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-500" x-text="ic"></span>
+                                </template>
+                            </div>
+                        </div>
+                        <span class="text-xs font-bold px-3 py-1 rounded-full shrink-0"
+                            :class="parseInt(item.hot_value)>5000000 ? 'bg-red-100 text-red-600' : parseInt(item.hot_value)>1000000 ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-600'"
+                            x-text="formatHot(item.hot_value)"
+                            x-show="item.hot_value"></span>
+                    </div>
+                </template>
+            </div>
+            <div x-show="hotLoading" class="text-center py-12 text-gray-400 pulse">加载热榜中...</div>
+        </div>
+
+        <!-- ========== 详情弹窗 Modal ========== -->
+        <div x-show="showDetail" x-transition.opacity 
+            class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+            @click.self="closeDetail()">
+            <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full mx-4 max-h-[85vh] overflow-y-auto" 
+                @click.stop>
+                <!-- Header -->
+                <div class="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between rounded-t-2xl z-10">
+                    <h3 class="font-bold text-gray-800 text-lg truncate pr-4" x-text="detailTitle"></h3>
+                    <button @click="closeDetail()" 
+                        class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+                </div>
+                <!-- Body -->
+                <div class="px-6 py-5 space-y-5">
+                    <!-- 基本信息 -->
+                    <div class="flex flex-wrap gap-3">
+                        <span x-show="detailHotValue" class="text-xs font-bold px-3 py-1 rounded-full"
+                            :class="parseInt(detailHotValue)>5000000 ? 'bg-red-100 text-red-600' : parseInt(detailHotValue)>1000000 ? 'bg-orange-100 text-orange-600' : 'bg-gray-100 text-gray-600'"
+                            x-text="'🔥 '+formatHot(detailHotValue)"></span>
+                        <span x-show="detailLabel" class="text-xs px-3 py-1 rounded-full bg-blue-100 text-blue-600" x-text="detailLabel"></span>
+                        <a :href="detailUrl" target="_blank" x-show="detailUrl"
+                            class="text-xs px-3 py-1 rounded-full bg-purple-100 text-purple-600 hover:bg-purple-200 transition">
+                            🔗 查看原文
+                        </a>
+                    </div>
+
+                    <!-- 加载中 -->
+                    <div x-show="detailLoading" class="text-center py-8 text-gray-400 pulse">
+                        🤖 AI正在分析这条热榜...
+                    </div>
+
+                    <!-- AI分析结果 -->
+                    <div x-show="!detailLoading && detailAnalysis" class="space-y-4 fade-in">
+                        <!-- 话题概述 -->
+                        <div>
+                            <h4 class="text-sm font-bold text-gray-700 mb-1">📌 话题概述</h4>
+                            <p class="text-sm text-gray-600 leading-relaxed" x-text="detailAnalysis.topic_summary"></p>
+                        </div>
+                        <!-- 背景知识 -->
+                        <div x-show="detailAnalysis.background">
+                            <h4 class="text-sm font-bold text-gray-700 mb-1">📖 背景知识</h4>
+                            <p class="text-sm text-gray-600 leading-relaxed" x-text="detailAnalysis.background"></p>
+                        </div>
+                        <!-- 切入角度 -->
+                        <div x-show="detailAnalysis.angles?.length">
+                            <h4 class="text-sm font-bold text-gray-700 mb-1">🎯 可切入角度</h4>
+                            <template x-for="a in detailAnalysis.angles">
+                                <p class="text-sm text-purple-600 pl-3 border-l-2 border-purple-300 mb-1" x-text="'▶ '+a"></p>
+                            </template>
+                        </div>
+                        <!-- 建议标题 -->
+                        <div x-show="detailAnalysis.suggested_title" class="bg-purple-50 rounded-xl p-4">
+                            <h4 class="text-sm font-bold text-purple-700 mb-1">✍️ AI建议标题</h4>
+                            <p class="text-base font-medium text-purple-900" x-text="detailAnalysis.suggested_title"></p>
+                        </div>
+                        <!-- 目标读者 -->
+                        <div x-show="detailAnalysis.target_readers">
+                            <h4 class="text-sm font-bold text-gray-700 mb-1">👥 目标读者</h4>
+                            <p class="text-sm text-gray-600" x-text="detailAnalysis.target_readers"></p>
+                        </div>
+                        <!-- 关键词 -->
+                        <div x-show="detailAnalysis.keywords?.length">
+                            <h4 class="text-sm font-bold text-gray-700 mb-1">🏷️ 关键词</h4>
+                            <template x-for="k in detailAnalysis.keywords">
+                                <span class="inline-block bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded mr-1 mb-1" x-text="k"></span>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+                <!-- Footer with copy button -->
+                <div class="border-t px-6 py-4 flex gap-3 justify-between bg-gray-50 rounded-b-2xl">
+                    <button @click="closeDetail()" 
+                        class="px-4 py-2 text-sm text-gray-600 bg-white border rounded-lg hover:bg-gray-50 transition">
+                        关闭
+                    </button>
+                    <div class="flex gap-2">
+                        <button @click="rewriteFromHot(detailTitle, detailAnalysis?.angles?.[0] || '', detailAnalysis?.background || ''); closeDetail()"
+                            :disabled="detailLoading"
+                            class="px-5 py-2 text-sm font-medium text-white bg-gradient-to-r from-purple-500 to-indigo-600 rounded-lg hover:shadow-lg transition disabled:opacity-50">
+                            ✍️ 拿去改写
+                        </button>
+                        <button @click="copyDetail()" :disabled="!detailAnalysis"
+                            class="px-5 py-2 text-sm font-medium text-white bg-gradient-to-r from-purple-500 to-indigo-600 rounded-lg hover:shadow-lg transition disabled:opacity-50">
+                            <span x-show="!detailCopied">📋 一键复制</span>
+                            <span x-show="detailCopied" class="text-green-200">✅ 已复制</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== 爆文搜索 Tab ========== -->
+        <div x-show="tab==='search'" x-transition class="space-y-6">
+            <div class="bg-white rounded-2xl shadow-sm border p-6">
+                <h2 class="text-xl font-bold text-gray-800 mb-4">🔍 低粉爆文搜索</h2>
+                <p class="text-sm text-gray-500 mb-4">搜索小号写出的爆款文章，分析成功密码</p>
+                <form @submit.prevent="searchArticles()" class="flex gap-3">
+                    <input x-model="searchKeyword" type="text" placeholder="输入关键词，如：副业、存钱、AI写作..."
+                        class="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none text-sm">
+                    <button type="submit" :disabled="searchLoading"
+                        class="bg-gradient-to-r from-purple-500 to-indigo-600 text-white px-8 py-3 rounded-xl font-medium text-sm hover:shadow-lg transition disabled:opacity-50">
+                        <span x-show="!searchLoading">搜索</span>
+                        <span x-show="searchLoading" class="pulse">搜索中...</span>
+                    </button>
+                </form>
+            </div>
+
+            <!-- AI分析 -->
+            <div x-show="searchAnalysis" class="fade-in bg-gradient-to-r from-amber-50 to-orange-50 rounded-2xl border border-amber-200 p-6" x-transition>
+                <h3 class="font-bold text-gray-800 mb-3">🧠 爆文密码分析</h3>
+                <div class="grid md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                        <p class="text-xs text-gray-500 mb-1">标题风格</p>
+                        <p class="text-sm font-medium text-gray-800" x-text="searchAnalysis.title_style"></p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-gray-500 mb-1">内容角度</p>
+                        <p class="text-sm font-medium text-gray-800" x-text="searchAnalysis.content_angle"></p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-gray-500 mb-1">共同模式</p>
+                        <template x-for="p in searchAnalysis.common_patterns">
+                            <span class="inline-block bg-amber-100 text-amber-700 text-xs px-2 py-0.5 rounded mr-1 mb-1" x-text="p"></span>
+                        </template>
+                    </div>
+                </div>
+                <div x-show="searchAnalysis.recommended_titles?.length">
+                    <p class="text-xs text-gray-500 mb-2">💡 建议标题</p>
+                    <template x-for="t in searchAnalysis.recommended_titles">
+                        <p class="text-sm text-gray-700 mb-1 pl-3 border-l-2 border-amber-400" x-text="'📝 '+t"></p>
+                    </template>
+                </div>
+            </div>
+
+            <!-- 搜索结果 -->
+            <div class="grid gap-3">
+                <template x-for="(a, i) in searchResults" :key="i">
+                    <div class="bg-white rounded-xl shadow-sm border p-4 card-hover">
+                        <div class="flex items-start gap-3">
+                            <!-- 缩略图 -->
+                            <img :src="a.image_url" x-show="a.image_url" class="w-16 h-16 rounded-lg object-cover shrink-0 bg-gray-100"
+                                @error="$event.target.style.display='none'">
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="text-xs px-2 py-0.5 rounded-full shrink-0"
+                                        :class="a.type==='microblog' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'"
+                                        x-text="a.type==='microblog' ? '微头条' : '图文'"></span>
+                                    <p class="text-sm font-medium text-gray-800 line-clamp-2" x-text="a.title"></p>
+                                </div>
+                                <p class="text-xs text-gray-400 line-clamp-2 mb-2" x-text="a.abstract" x-show="a.abstract"></p>
+                                <div class="flex gap-3 flex-wrap items-center">
+                                    <span class="text-xs text-gray-400" x-show="a.digg_count">👍 <span x-text="a.digg_count"></span></span>
+                                    <span class="text-xs text-gray-400" x-show="a.comment_count">💬 <span x-text="a.comment_count"></span></span>
+                                    <span class="text-xs text-gray-400" x-show="a.read_count">👁 <span x-text="a.read_count"></span></span>
+                                    <span class="text-xs text-gray-400" x-show="a.source">👤 <span x-text="a.source"></span></span>
+                                    <span class="text-xs font-bold px-2 py-0.5 rounded shrink-0"
+                                        :class="a.score>10000 ? 'bg-red-100 text-red-600' : a.score>1000 ? 'bg-orange-100 text-orange-600' : 'bg-green-100 text-green-600'"
+                                        x-text="'🔥'+a.score"
+                                        x-show="a.score>0"></span>
+                                    <button @click="copyArticle(a, $event)" 
+                                        class="text-xs px-2.5 py-1 rounded-lg bg-gray-50 hover:bg-purple-50 text-gray-400 hover:text-purple-600 border border-gray-200 hover:border-purple-200 transition ml-auto">
+                                        📋 复制
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+            <div x-show="searchLoading" class="text-center py-12 text-gray-400 pulse">搜索中...</div>
+            <div x-show="!searchLoading && searchResults.length===0 && searched" class="text-center py-12 text-gray-400">
+                未找到结果，换个关键词试试？
+            </div>
+        </div>
+
+        <!-- ========== AI改写 Tab ========== -->
+        <div x-show="tab==='rewrite'" x-transition class="space-y-6">
+            <!-- 模式切换 -->
+            <div class="bg-white rounded-2xl shadow-sm border p-6">
+                <h2 class="text-xl font-bold text-gray-800 mb-1">✍️ AI智能改写</h2>
+                <p class="text-sm text-gray-400 mb-4">粘贴原文改写、输入主题生成、或批量生成爆款标题</p>
+
+                <!-- 模式Tab -->
+                <div class="flex gap-1 bg-gray-100 rounded-xl p-1 mb-5">
+                    <button @click="rewriteMode='rewrite'" 
+                        :class="rewriteMode==='rewrite' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+                        class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">📄 改写原文</button>
+                    <button @click="rewriteMode='generate'" 
+                        :class="rewriteMode==='generate' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+                        class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">💡 主题生成</button>
+                    <button @click="rewriteMode='titles'" 
+                        :class="rewriteMode==='titles' ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'"
+                        class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">🔥 标题工坊</button>
+                </div>
+
+                <!-- 模式1: 改写原文 -->
+                <div x-show="rewriteMode==='rewrite'" class="space-y-4">
+                    <textarea x-model="rewriteText" rows="8" placeholder="粘贴你想改写的文章内容...&#10;&#10;也可以只粘贴标题，AI会自动扩展成完整文章"
+                        class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none text-sm resize-none"></textarea>
+                    <div class="flex gap-2 flex-wrap">
+                        <select x-model="rewriteStyle"
+                            class="px-4 py-2 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-purple-500">
+                            <option value="智能改写">🤖 智能改写（推荐）</option>
+                            <option value="爆款改写">爆款改写</option>
+                            <option value="深度扩展">深度扩展</option>
+                            <option value="精简提炼">精简提炼</option>
+                            <option value="观点反转">观点反转</option>
+                            <option value="增加案例">增加案例</option>
+                        </select>
+                        <button @click="doRewrite()" :disabled="rewriting"
+                            class="bg-gradient-to-r from-purple-500 to-indigo-600 text-white px-6 py-2 rounded-xl font-medium text-sm hover:shadow-lg transition disabled:opacity-50">
+                            <span x-show="!rewriting">🪄 开始改写</span>
+                            <span x-show="rewriting" class="pulse">改写中...</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 模式2: 主题生成 -->
+                <div x-show="rewriteMode==='generate'" class="space-y-4">
+                    <div class="relative">
+                        <input x-model="generateTopic" type="text" placeholder="输入主题或关键词，如：副业赚钱、存钱技巧、AI工具推荐..."
+                            class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none text-sm"
+                            @keydown.enter="doGenerate()">
+                    </div>
+                    <div class="flex gap-2 flex-wrap">
+                        <button @click="doGenerate()" :disabled="rewriting"
+                            class="bg-gradient-to-r from-purple-500 to-indigo-600 text-white px-6 py-2 rounded-xl font-medium text-sm hover:shadow-lg transition disabled:opacity-50">
+                            <span x-show="!rewriting">💡 一键生成文章</span>
+                            <span x-show="rewriting" class="pulse">生成中...</span>
+                        </button>
+                    </div>
+                    <div class="flex flex-wrap gap-1.5">
+                        <span @click="generateTopic='副业赚钱'; doGenerate()" class="text-xs px-2.5 py-1 rounded-full bg-purple-50 text-purple-600 cursor-pointer hover:bg-purple-100 transition">副业赚钱</span>
+                        <span @click="generateTopic='存钱技巧'; doGenerate()" class="text-xs px-2.5 py-1 rounded-full bg-purple-50 text-purple-600 cursor-pointer hover:bg-purple-100 transition">存钱技巧</span>
+                        <span @click="generateTopic='AI工具推荐'; doGenerate()" class="text-xs px-2.5 py-1 rounded-full bg-purple-50 text-purple-600 cursor-pointer hover:bg-purple-100 transition">AI工具推荐</span>
+                        <span @click="generateTopic='职场成长'; doGenerate()" class="text-xs px-2.5 py-1 rounded-full bg-purple-50 text-purple-600 cursor-pointer hover:bg-purple-100 transition">职场成长</span>
+                        <span @click="generateTopic='月入过万'; doGenerate()" class="text-xs px-2.5 py-1 rounded-full bg-purple-50 text-purple-600 cursor-pointer hover:bg-purple-100 transition">月入过万</span>
+                    </div>
+                </div>
+
+                <!-- 模式3: 标题工坊 -->
+                <div x-show="rewriteMode==='titles'" class="space-y-4">
+                    <input x-model="titleKeyword" type="text" placeholder="输入主题，AI生成5个爆款标题..."
+                        class="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none text-sm"
+                        @keydown.enter="doGenerateTitles()">
+                    <div class="flex gap-2">
+                        <button @click="doGenerateTitles()" :disabled="rewriting"
+                            class="bg-gradient-to-r from-purple-500 to-indigo-600 text-white px-6 py-2 rounded-xl font-medium text-sm hover:shadow-lg transition disabled:opacity-50">
+                            <span x-show="!rewriting">🎯 生成爆款标题</span>
+                            <span x-show="rewriting" class="pulse">生成中...</span>
+                        </button>
+                    </div>
+
+                    <!-- 标题候选 -->
+                    <div x-show="titleOptions.length" class="space-y-2 mt-4 fade-in">
+                        <p class="text-xs text-gray-400 mb-2">📋 点击标题可直接生成完整文章</p>
+                        <template x-for="(t, i) in titleOptions" :key="i">
+                            <div class="bg-purple-50/50 rounded-xl p-4 border border-purple-100 hover:border-purple-300 cursor-pointer transition group" 
+                                @click="pickTitle(t)">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div class="flex-1">
+                                        <span class="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-600 mb-1 inline-block" x-text="t.style"></span>
+                                        <p class="text-sm font-medium text-gray-800 mt-1" x-text="t.text"></p>
+                                        <p class="text-xs text-gray-400 mt-1" x-text="t.why"></p>
+                                    </div>
+                                    <span class="text-purple-400 opacity-0 group-hover:opacity-100 transition shrink-0">→</span>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 图片搜索 -->
+            <div class="bg-white rounded-2xl shadow-sm border p-6">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="font-bold text-gray-800 text-sm">🖼️ 配图搜索</h3>
+                    <span class="text-xs text-gray-400">为文章找免费可商用图片</span>
+                </div>
+                <div class="flex gap-2">
+                    <input x-model="imageKeyword" type="text" placeholder="输入搜索词，如：副业、赚钱、职场..."
+                        class="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none text-sm"
+                        @keydown.enter="searchImages()">
+                    <button @click="searchImages()" :disabled="imageSearching"
+                        class="bg-gradient-to-r from-pink-500 to-rose-500 text-white px-5 py-2.5 rounded-xl font-medium text-sm hover:shadow-lg transition disabled:opacity-50">
+                        <span x-show="!imageSearching">🔍 搜图</span>
+                        <span x-show="imageSearching" class="pulse">搜索中...</span>
+                    </button>
+                </div>
+                <!-- 快捷搜索标签 -->
+                <div class="flex flex-wrap gap-1.5 mt-3">
+                    <span @click="imageKeyword='副业赚钱'; searchImages()" class="text-xs px-2.5 py-1 rounded-full bg-rose-50 text-rose-600 cursor-pointer hover:bg-rose-100 transition">副业赚钱</span>
+                    <span @click="imageKeyword='职场办公'; searchImages()" class="text-xs px-2.5 py-1 rounded-full bg-rose-50 text-rose-600 cursor-pointer hover:bg-rose-100 transition">职场办公</span>
+                    <span @click="imageKeyword='存钱理财'; searchImages()" class="text-xs px-2.5 py-1 rounded-full bg-rose-50 text-rose-600 cursor-pointer hover:bg-rose-100 transition">存钱理财</span>
+                    <span @click="imageKeyword='AI科技'; searchImages()" class="text-xs px-2.5 py-1 rounded-full bg-rose-50 text-rose-600 cursor-pointer hover:bg-rose-100 transition">AI科技</span>
+                </div>
+                <!-- 图片结果 -->
+                <div x-show="imageResults.length > 0" class="mt-4 fade-in">
+                    <p class="text-xs text-gray-400 mb-2">📸 点击图片复制链接 | 图片来自 Pexels，免费可商用</p>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <template x-for="(img, i) in imageResults" :key="i">
+                            <div class="relative group cursor-pointer rounded-xl overflow-hidden border border-gray-100 hover:border-rose-300 transition bg-gray-50"
+                                @click="copyImageUrl(img)">
+                                <img :src="img.thumb" :alt="img.alt" class="w-full h-32 object-cover"
+                                    @error="$event.target.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22128%22><rect fill=%22%23f3f4f6%22 width=%22200%22 height=%22128%22/><text x=%22100%22 y=%2270%22 text-anchor=%22middle%22 fill=%22%239ca3af%22 font-size=%2214%22>加载失败</text></svg>'">
+                                <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                                    <span class="text-white text-xs font-medium px-3 py-1 rounded-full bg-white/20 backdrop-blur">📋 点击复制</span>
+                                </div>
+                                <div x-show="img.copied" class="absolute top-2 right-2 bg-green-500 text-white text-xs px-2 py-0.5 rounded-full">✅ 已复制</div>
+                            </div>
+                        </template>
+                    </div>
+                    <p class="text-xs text-gray-400 mt-2">摄影师: <span x-text="imageResults[0]?.photographer || 'Unknown'"></span> · 来源: Pexels</p>
+                </div>
+                <div x-show="imageSearching" class="text-center py-8 text-gray-400 pulse">🔍 搜索图片中...</div>
+            </div>
+
+            <!-- 改写结果 -->
+            <div x-show="rewriteResult" class="fade-in bg-white rounded-2xl shadow-sm border p-6" x-transition>
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-bold text-gray-800">📝 改写结果</h3>
+                    <div class="flex gap-2">
+                        <button @click="regenerateRewrite()" :disabled="rewriting"
+                            class="text-xs bg-purple-50 hover:bg-purple-100 text-purple-600 px-3 py-1 rounded-lg transition"
+                            x-show="rewriteMode==='generate'">
+                            🔄 换一篇
+                        </button>
+                        <button @click="copyRewrite()"
+                            class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1 rounded-lg transition">
+                            📋 一键复制
+                        </button>
+                        <button @click="searchImagesForRewrite()" :disabled="imageSearching"
+                            class="text-xs bg-rose-50 hover:bg-rose-100 text-rose-600 px-3 py-1 rounded-lg transition">
+                            <span x-show="!imageSearching">🖼️ 搜配图</span>
+                            <span x-show="imageSearching" class="pulse">搜索中...</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="bg-gray-50 rounded-xl p-6 max-h-96 overflow-y-auto">
+                    <h4 class="text-lg font-bold text-gray-900 mb-3" x-text="rewriteTitle"></h4>
+                    <div class="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed" x-text="rewriteContent"></div>
+                </div>
+                <p class="text-xs text-gray-400 mt-3" x-text="'字数: '+rewriteWordCount+' | 风格: '+rewriteStyleUsed"></p>
+
+                <!-- 改写结果内联配图 -->
+                <div x-show="inlineImages.length > 0" class="mt-4 pt-4 border-t border-gray-100 fade-in">
+                    <p class="text-xs text-gray-400 mb-3">🖼️ 文章配图 · 点击复制链接 · 来自 Pexels 免费可商用</p>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <template x-for="(img, i) in inlineImages" :key="i">
+                            <div class="relative group cursor-pointer rounded-xl overflow-hidden border border-gray-100 hover:border-rose-300 transition bg-gray-50"
+                                @click="copyImageUrlInline(img)">
+                                <img :src="img.thumb" :alt="img.alt" class="w-full h-32 object-cover"
+                                    @error="$event.target.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22128%22><rect fill=%22%23f3f4f6%22 width=%22200%22 height=%22128%22/><text x=%22100%22 y=%2270%22 text-anchor=%22middle%22 fill=%22%239ca3af%22 font-size=%2214%22>加载失败</text></svg>'">
+                                <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                                    <span class="text-white text-xs font-medium px-3 py-1 rounded-full bg-white/20 backdrop-blur">📋 点击复制</span>
+                                </div>
+                                <div x-show="img.copied" class="absolute top-2 right-2 bg-green-500 text-white text-xs px-2 py-0.5 rounded-full">✅ 已复制</div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== 选题灵感 Tab ========== -->
+        <div x-show="tab==='ideas'" x-transition class="space-y-6">
+            <div class="bg-white rounded-2xl shadow-sm border p-6">
+                <h2 class="text-xl font-bold text-gray-800 mb-4">💡 AI选题灵感</h2>
+                <div class="flex gap-3 mb-6">
+                    <select x-model="ideaCategory"
+                        class="px-4 py-2 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-purple-500">
+                        <option value="副业赚钱">副业赚钱</option>
+                        <option value="职场成长">职场成长</option>
+                        <option value="AI科技">AI科技</option>
+                        <option value="生活技巧">生活技巧</option>
+                        <option value="理财存钱">理财存钱</option>
+                        <option value="情感关系">情感关系</option>
+                    </select>
+                    <button @click="generateIdeas()" :disabled="ideaLoading"
+                        class="bg-gradient-to-r from-purple-500 to-indigo-600 text-white px-8 py-2 rounded-xl font-medium text-sm hover:shadow-lg transition disabled:opacity-50">
+                        <span x-show="!ideaLoading">🎯 生成选题</span>
+                        <span x-show="ideaLoading" class="pulse">生成中...</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-4">
+                <template x-for="(idea, i) in ideas" :key="i">
+                    <div class="bg-white rounded-xl shadow-sm border p-5 card-hover fade-in">
+                        <h3 class="font-bold text-gray-800 mb-2" x-text="idea.title"></h3>
+                        <p class="text-sm text-purple-600 mb-3" x-text="'切入角度: '+idea.angle"></p>
+                        <div class="space-y-1 mb-3">
+                            <template x-for="point in idea.outline">
+                                <p class="text-xs text-gray-500 flex items-start gap-2">
+                                    <span class="text-purple-400 mt-0.5">•</span>
+                                    <span x-text="point"></span>
+                                </p>
+                            </template>
+                        </div>
+                        <p class="text-xs bg-gray-50 rounded-lg p-2 text-gray-500 italic mb-2" x-text="'开头: '+idea.hook"></p>
+                        <div class="flex justify-between items-center">
+                            <span class="text-xs text-gray-400" x-text="idea.target_audience"></span>
+                            <div class="flex items-center gap-2">
+                                <button @click="copyIdea(idea, $event)" 
+                                    class="text-xs px-2.5 py-1 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-600 hover:text-purple-700 transition">
+                                    📋 复制
+                                </button>
+                                <span class="text-xs font-bold px-2 py-0.5 rounded-full"
+                                    :class="idea.estimated_read==='高' ? 'bg-green-100 text-green-700' : idea.estimated_read==='中' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-600'"
+                                    x-text="'预估: '+idea.estimated_read"></span>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+            <div x-show="ideaLoading" class="text-center py-12 text-gray-400 pulse">AI正在生成选题...</div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t mt-16 py-8 text-center text-sm text-gray-400">
+        <p>Creator AI Toolbox · 帮头条创作者用AI找到爆款选题</p>
+        <p class="mt-1">Built with ❤️ and AI</p>
+    </footer>
+
+    <script>
+        // API base URL - empty for same-origin, change for separate deployment
+        const API_BASE = '';
+
+        function app() {
+            return {
+                tab: 'hot',
+                // Hot board
+                allHotList: [],    // 全量热榜
+                hotList: [],       // 当前分类下的热榜
+                hotLoading: false,
+                hotAnalysis: null,
+                analyzing: false,
+                hotCategory: 'all',
+                hotCategories: [],
+                // Detail modal
+                showDetail: false,
+                detailTitle: '',
+                detailUrl: '',
+                detailHotValue: '',
+                detailLabel: '',
+                detailLoading: false,
+                detailAnalysis: null,
+                detailCopied: false,
+                // Search
+                searchKeyword: '',
+                searchResults: [],
+                searchAnalysis: null,
+                searchLoading: false,
+                searched: false,
+                // Rewrite
+                rewriteMode: 'rewrite',  // rewrite | generate | titles
+                rewriteText: '',
+                rewriteStyle: '智能改写',
+                rewriteResult: false,
+                rewriteTitle: '',
+                rewriteContent: '',
+                rewriteWordCount: 0,
+                rewriteStyleUsed: '',
+                rewriting: false,
+                // Generate mode
+                generateTopic: '',
+                // Title workshop
+                titleKeyword: '',
+                titleOptions: [],
+                // Image search
+                imageKeyword: '',
+                imageResults: [],
+                imageSearching: false,
+                // Inline images (from rewrite)
+                inlineImages: [],
+                // Ideas
+                ideaCategory: '副业赚钱',
+                ideas: [],
+                ideaLoading: false,
+
+                async init() {
+                    await this.loadHotboard();
+                },
+
+                formatHot(val) {
+                    if (!val) return '';
+                    const n = parseInt(val);
+                    if (n > 100000000) return (n / 100000000).toFixed(1) + '亿';
+                    if (n > 10000) return (n / 10000).toFixed(0) + '万';
+                    return n.toString();
+                },
+
+                async loadHotboard() {
+                    this.hotLoading = true;
+                    try {
+                        const r = await fetch(`${API_BASE}/api/hotboard`);
+                        const d = await r.json();
+                        this.allHotList = d.data || [];
+                        this.hotCategories = d.categories || [];
+                        // 默认显示全部
+                        this.filterByCategory(this.hotCategory);
+                    } catch (e) {
+                        console.error(e);
+                    }
+                    this.hotLoading = false;
+                },
+
+                filterByCategory(catId) {
+                    if (catId === 'all') {
+                        this.hotList = this.allHotList;
+                        return;
+                    }
+                    // 按 InterestCategory 英文标签筛选
+                    this.hotList = this.allHotList.filter(item => {
+                        const cats = item.interest_categories || [];
+                        if (cats.length === 0) {
+                            // 无分类 → 归入"社会"
+                            return catId === 'society';
+                        }
+                        return cats.includes(catId);
+                    });
+                },
+
+                async switchCategory(catId) {
+                    this.hotCategory = catId;
+                    this.hotAnalysis = null;
+                    this.filterByCategory(catId);
+                },
+
+                async analyzeHotboard() {
+                    this.analyzing = true;
+                    this.hotAnalysis = null;
+                    try {
+                        const r = await fetch(`${API_BASE}/api/hotboard/analyze`);
+                        const d = await r.json();
+                        this.hotAnalysis = d.analysis;
+                    } catch (e) {
+                        console.error(e);
+                    }
+                    this.analyzing = false;
+                },
+
+                // --- 详情弹窗 ---
+                async viewDetail(item) {
+                    this.showDetail = true;
+                    this.detailTitle = item.title;
+                    this.detailUrl = item.url;
+                    this.detailHotValue = item.hot_value;
+                    this.detailLabel = item.label;
+                    this.detailLoading = true;
+                    this.detailAnalysis = null;
+                    this.detailCopied = false;
+                    try {
+                        const params = new URLSearchParams({
+                            title: item.title,
+                            url: item.url || '',
+                            hot_value: item.hot_value || '',
+                            label: item.label || '',
+                        });
+                        const r = await fetch(`${API_BASE}/api/hotboard/detail?${params}`);
+                        const d = await r.json();
+                        this.detailAnalysis = d.analysis;
+                    } catch (e) {
+                        console.error(e);
+                    }
+                    this.detailLoading = false;
+                },
+
+                closeDetail() {
+                    this.showDetail = false;
+                    this.detailAnalysis = null;
+                },
+
+                async copyDetail() {
+                    if (!this.detailAnalysis) return;
+                    let text = `📌 ${this.detailTitle}\n`;
+                    text += `🔥 热度：${this.formatHot(this.detailHotValue)}\n`;
+                    if (this.detailLabel) text += `🏷️ 标签：${this.detailLabel}\n`;
+                    if (this.detailUrl) text += `🔗 原文：${this.detailUrl}\n`;
+                    text += `\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+                    text += `📌 话题概述\n${this.detailAnalysis.topic_summary || ''}\n\n`;
+                    if (this.detailAnalysis.background) {
+                        text += `📖 背景知识\n${this.detailAnalysis.background}\n\n`;
+                    }
+                    if (this.detailAnalysis.angles?.length) {
+                        text += `🎯 可切入角度\n`;
+                        this.detailAnalysis.angles.forEach(a => { text += `▶ ${a}\n`; });
+                        text += `\n`;
+                    }
+                    if (this.detailAnalysis.suggested_title) {
+                        text += `✍️ AI建议标题\n${this.detailAnalysis.suggested_title}\n\n`;
+                    }
+                    if (this.detailAnalysis.target_readers) {
+                        text += `👥 目标读者\n${this.detailAnalysis.target_readers}\n\n`;
+                    }
+                    if (this.detailAnalysis.keywords?.length) {
+                        text += `🏷️ 关键词：${this.detailAnalysis.keywords.join('、')}\n`;
+                    }
+                    await navigator.clipboard.writeText(text);
+                    this.detailCopied = true;
+                    setTimeout(() => { this.detailCopied = false; }, 2000);
+                },
+
+                async searchArticles() {
+                    if (!this.searchKeyword.trim()) return;
+                    this.searchLoading = true;
+                    this.searched = true;
+                    this.searchAnalysis = null;
+                    try {
+                        const r = await fetch(`${API_BASE}/api/search?keyword=${encodeURIComponent(this.searchKeyword)}`);
+                        const d = await r.json();
+                        this.searchResults = d.articles || [];
+                        this.searchAnalysis = d.analysis;
+                    } catch (e) {
+                        console.error(e);
+                    }
+                    this.searchLoading = false;
+                },
+
+                // --- AI改写 ---
+                async doRewrite() {
+                    if (!this.rewriteText.trim()) return;
+                    this.rewriting = true;
+                    this.rewriteResult = false;
+                    try {
+                        const r = await fetch(`${API_BASE}/api/rewrite`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                text: this.rewriteText,
+                                style: this.rewriteStyle,
+                                mode: 'rewrite',
+                            }),
+                        });
+                        const d = await r.json();
+                        this.rewriteTitle = d.title;
+                        this.rewriteContent = d.content;
+                        this.rewriteWordCount = d.word_count;
+                        this.rewriteStyleUsed = d.style || this.rewriteStyle;
+                        this.rewriteResult = true;
+                    } catch (e) {
+                        console.error(e);
+                    }
+                    this.rewriting = false;
+                },
+
+                async doGenerate() {
+                    if (!this.generateTopic.trim()) return;
+                    this.rewriting = true;
+                    this.rewriteResult = false;
+                    try {
+                        const r = await fetch(`${API_BASE}/api/rewrite`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                text: this.generateTopic,
+                                mode: 'generate',
+                            }),
+                        });
+                        const d = await r.json();
+                        this.rewriteTitle = d.title;
+                        this.rewriteContent = d.content;
+                        this.rewriteWordCount = d.word_count;
+                        this.rewriteStyleUsed = '主题生成';
+                        this.rewriteResult = true;
+                    } catch (e) {
+                        console.error(e);
+                    }
+                    this.rewriting = false;
+                },
+
+                async regenerateRewrite() {
+                    if (this.rewriteMode === 'generate' && this.generateTopic) {
+                        await this.doGenerate();
+                    } else {
+                        await this.doRewrite();
+                    }
+                },
+
+                // 标题工坊
+                async doGenerateTitles() {
+                    const text = this.rewriteMode === 'titles' ? this.titleKeyword : (this.rewriteMode === 'generate' ? this.generateTopic : this.rewriteText);
+                    if (!text || !text.trim()) return;
+                    this.rewriting = true;
+                    this.titleOptions = [];
+                    try {
+                        const r = await fetch(`${API_BASE}/api/rewrite/titles`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ text: text.trim(), count: 5 }),
+                        });
+                        const d = await r.json();
+                        this.titleOptions = d.titles || [];
+                    } catch (e) {
+                        console.error(e);
+                    }
+                    this.rewriting = false;
+                },
+
+                // 从标题工坊选一个标题 → 生成全文
+                async pickTitle(t) {
+                    this.rewriting = true;
+                    this.rewriteResult = false;
+                    try {
+                        const r = await fetch(`${API_BASE}/api/rewrite`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                text: t.text,
+                                mode: 'generate',
+                            }),
+                        });
+                        const d = await r.json();
+                        this.rewriteTitle = d.title;
+                        this.rewriteContent = d.content;
+                        this.rewriteWordCount = d.word_count;
+                        this.rewriteStyleUsed = '标题展开';
+                        this.rewriteResult = true;
+                    } catch (e) {
+                        console.error(e);
+                    }
+                    this.rewriting = false;
+                },
+
+                // 从热榜/详情一键改写（外部调用）
+                async rewriteFromHot(hotTitle, angle, background) {
+                    this.tab = 'rewrite';
+                    this.rewriteMode = 'rewrite';
+                    this.rewriting = true;
+                    this.rewriteResult = false;
+                    try {
+                        const r = await fetch(`${API_BASE}/api/rewrite/from-hot`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                title: hotTitle,
+                                angle: angle || '',
+                                background: background || '',
+                            }),
+                        });
+                        const d = await r.json();
+                        this.rewriteTitle = d.title;
+                        this.rewriteContent = d.content;
+                        this.rewriteWordCount = d.word_count;
+                        this.rewriteStyleUsed = '热榜改写';
+                        this.rewriteResult = true;
+                    } catch (e) {
+                        console.error(e);
+                    }
+                    this.rewriting = false;
+                },
+
+                async copyRewrite() {
+                    const text = this.rewriteTitle + '\n\n' + this.rewriteContent;
+                    await navigator.clipboard.writeText(text);
+                    alert('已复制到剪贴板！');
+                },
+
+                // 图片搜索
+                async searchImages() {
+                    if (!this.imageKeyword.trim()) return;
+                    this.imageSearching = true;
+                    this.imageResults = [];
+                    try {
+                        const r = await fetch(`${API_BASE}/api/image-search?keyword=${encodeURIComponent(this.imageKeyword)}`);
+                        const d = await r.json();
+                        this.imageResults = (d.images || []).map(img => ({...img, copied: false}));
+                    } catch (e) {
+                        console.error('Image search error:', e);
+                    }
+                    this.imageSearching = false;
+                },
+
+                copyImageUrl(img) {
+                    navigator.clipboard.writeText(img.url).then(() => {
+                        this.imageResults.forEach(i => i.copied = false);
+                        img.copied = true;
+                        setTimeout(() => { img.copied = false; }, 2000);
+                    });
+                },
+
+                copyImageUrlInline(img) {
+                    navigator.clipboard.writeText(img.url).then(() => {
+                        this.inlineImages.forEach(i => i.copied = false);
+                        img.copied = true;
+                        setTimeout(() => { img.copied = false; }, 2000);
+                    });
+                },
+
+                // 用改写标题一键搜配图
+                async searchImagesForRewrite() {
+                    if (!this.rewriteTitle) return;
+                    this.inlineImages = [];
+                    this.imageSearching = true;
+                    try {
+                        const r = await fetch(`${API_BASE}/api/image-search?keyword=${encodeURIComponent(this.rewriteTitle)}`);
+                        const d = await r.json();
+                        this.inlineImages = (d.images || []).map(img => ({...img, copied: false}));
+                    } catch (e) {
+                        console.error('Inline image search error:', e);
+                    }
+                    this.imageSearching = false;
+                },
+
+                // 复制爆文
+                copyArticle(a, event) {
+                    if (event) event.stopPropagation();
+                    let text = `${a.title}\n`;
+                    if (a.abstract) text += `${a.abstract}\n`;
+                    text += `\n👍 ${a.digg_count || 0} | 💬 ${a.comment_count || 0} | 👁 ${a.read_count || 0}\n`;
+                    if (a.url) text += `原文: ${a.url}`;
+                    navigator.clipboard.writeText(text).then(() => {
+                        alert('已复制！');
+                    });
+                },
+
+                // 复制选题
+                copyIdea(idea, event) {
+                    if (event) event.stopPropagation();
+                    let text = `💡 ${idea.title}\n`;
+                    text += `切入角度: ${idea.angle}\n\n`;
+                    text += `大纲:\n`;
+                    (idea.outline || []).forEach(p => { text += `• ${p}\n`; });
+                    text += `\n开头: ${idea.hook}\n`;
+                    text += `目标读者: ${idea.target_audience || ''}\n`;
+                    navigator.clipboard.writeText(text).then(() => {
+                        alert('已复制！');
+                    });
+                },
+
+                async generateIdeas() {
+                    this.ideaLoading = true;
+                    this.ideas = [];
+                    try {
+                        const r = await fetch(`${API_BASE}/api/idea-generator?category=${encodeURIComponent(this.ideaCategory)}`);
+                        const d = await r.json();
+                        this.ideas = d.ideas || [];
+                    } catch (e) {
+                        console.error(e);
+                    }
+                    this.ideaLoading = false;
+                },
+            };
+        }
+    </script>
+</body>
+</html>

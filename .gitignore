@@ -1,0 +1,9 @@
+# Creator AI Toolbox
+# 内容创作者AI工具箱
+
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.log
+/tmp/
