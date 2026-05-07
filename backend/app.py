@@ -43,7 +43,7 @@ def load_toutiao_cookies():
     # 优先从环境变量读取
     env_cookie = os.environ.get("TOUTIAO_COOKIES", "")
     if env_cookie:
-        return env_cookie
+        return env_cookie.strip()
     try:
         with open(TOUTIAO_COOKIE_PATH, "r") as f:
             data = json.load(f)
@@ -716,3 +716,19 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print(f"🚀 Creator AI Toolbox 启动在 http://localhost:{port}")
     app.run(host="0.0.0.0", port=port, debug=False)
+
+
+# ========== 调试端点 ==========
+@app.route("/api/debug")
+def api_debug():
+    """诊断端点：检查密钥和 Cookie 状态"""
+    ds_key = load_deepseek_key()
+    cookie = load_toutiao_cookies()
+    return jsonify({
+        "deepseek_key": f"len={len(ds_key)}, preview={ds_key[:10] if ds_key else 'EMPTY'}...{ds_key[-4:] if len(ds_key) > 4 else ds_key}",
+        "toutiao_cookies": f"len={len(cookie)}, preview={cookie[:80] if cookie else 'EMPTY'}...",
+        "env": {
+            "DEEPSEEK_API_KEY": f"set={bool(os.environ.get('DEEPSEEK_API_KEY'))}, len={len(os.environ.get('DEEPSEEK_API_KEY',''))}",
+            "TOUTIAO_COOKIES": f"set={bool(os.environ.get('TOUTIAO_COOKIES'))}, len={len(os.environ.get('TOUTIAO_COOKIES',''))}",
+        }
+    })
