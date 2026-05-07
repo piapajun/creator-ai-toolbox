@@ -1,5 +1,5 @@
 services:
-  # Flask 后端 API 服务
+  # Flask 后端 API 服务（同时提供前端页面）
   - type: web
     name: creator-ai-toolbox-api
     env: python
@@ -9,6 +9,8 @@ services:
     plan: free
     envVars:
       - key: DEEPSEEK_API_KEY
-        sync: false  # 手动在 Render Dashboard 设置
+        sync: false  # 在 Render Dashboard 手动设置
+      - key: TOUTIAO_COOKIES
+        sync: false  # 头条 Cookie，搜索/热榜功能需要
       - key: PYTHON_VERSION
         value: "3.11"
