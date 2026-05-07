@@ -3,7 +3,7 @@ services:
   - type: web
     name: creator-ai-toolbox-api
     env: python
-    region: singapore  # 新加坡节点，国内访问快
+    region: oregon  # 美西俄勒冈，免费计划支持，国内访问延迟可接受
     buildCommand: pip install -r backend/requirements.txt
     startCommand: cd backend && gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
     plan: free
