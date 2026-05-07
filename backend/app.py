@@ -662,7 +662,12 @@ def load_pexels_key():
     except:
         return ""
 
-PEXELS_API_KEY = os.environ.get("PEXELS_API_KEY", "") or load_pexels_key()
+def get_pexels_key():
+    """获取 Pexels API Key：优先环境变量，fallback 配置文件"""
+    key = os.environ.get("PEXELS_API_KEY", "")
+    if key:
+        return key.strip()
+    return load_pexels_key()
 
 @app.route("/api/image-search")
 def api_image_search():
@@ -672,13 +677,14 @@ def api_image_search():
         return jsonify({"images": []})
 
     images = []
+    pexels_key = get_pexels_key()
 
     # 方案1: Pexels API（需要免费API key）
-    if PEXELS_API_KEY:
+    if pexels_key:
         try:
             r = requests.get(
                 "https://api.pexels.com/v1/search",
-                headers={"Authorization": PEXELS_API_KEY},
+                headers={"Authorization": pexels_key},
                 params={"query": keyword, "per_page": 8, "locale": "zh-CN"},
                 timeout=10,
             )
@@ -727,8 +733,11 @@ def api_debug():
     return jsonify({
         "deepseek_key": f"len={len(ds_key)}, preview={ds_key[:10] if ds_key else 'EMPTY'}...{ds_key[-4:] if len(ds_key) > 4 else ds_key}",
         "toutiao_cookies": f"len={len(cookie)}, preview={cookie[:80] if cookie else 'EMPTY'}...",
+        "pexels_key": f"len={len(get_pexels_key())}, ok={'LS14Z6' in get_pexels_key()}",
+        "pexels_works": True if get_pexels_key() else False,
         "env": {
             "DEEPSEEK_API_KEY": f"set={bool(os.environ.get('DEEPSEEK_API_KEY'))}, len={len(os.environ.get('DEEPSEEK_API_KEY',''))}",
             "TOUTIAO_COOKIES": f"set={bool(os.environ.get('TOUTIAO_COOKIES'))}, len={len(os.environ.get('TOUTIAO_COOKIES',''))}",
+            "PEXELS_API_KEY": f"set={bool(os.environ.get('PEXELS_API_KEY'))}, len={len(os.environ.get('PEXELS_API_KEY',''))}",
         }
     })
