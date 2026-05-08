@@ -164,6 +164,7 @@ def api_auth_status():
         "today_usage": us.get_today_usage(uid),
         "limits": limits,
         "credits_balance": status.get("credits_balance", 0),
+        "has_paid": bool(status.get("has_paid", 0)),
         "all_plans": {
             k: {"name": v["name"], "price": v["price"], "price_num": v["price_num"],
                 "duration_days": v["duration_days"], "description": v["description"],
@@ -236,9 +237,13 @@ def api_auth_logout():
 
 @app.route("/api/auth/pay-confirm", methods=["POST"])
 def api_auth_pay_confirm():
-    """支付后自动开通 — 用户扫码付款后点击确认，系统按金额匹配套餐自动激活"""
+    """支付后自动开通 — 用户扫码付款后点击确认，系统按金额匹配套餐自动激活。
+    首次充值享8折：用户实付80%金额即可开通匹配套餐。"""
+
+    FIRST_PAYMENT_DISCOUNT = 0.8  # 首充8折
+
     data = request.get_json() or {}
-    amount = data.get("amount", 0)
+    amount_raw = data.get("amount", 0)
 
     # 必须登录
     uid = get_user_id()
@@ -249,21 +254,41 @@ def api_auth_pay_confirm():
     if not user.get("username"):
         return jsonify({"success": False, "error": "请先注册账号再升级"}), 400
 
-    # 按金额匹配套餐
-    amount = float(amount)
+    amount = float(amount_raw)
+
+    # 检查是否首次充值
+    is_first_payment = not user.get("has_paid", 0)
+
+    # 按金额匹配套餐（精确匹配 + 首充8折反向匹配）
     plan_key = None
-    # 精确匹配
+    discount_applied = False
+
+    # 第一轮：精确匹配全价
     for k, v in PLAN_INFO.items():
         if v.get("price_num", 0) == amount:
             plan_key = k
             break
 
+    # 第二轮：首充8折反向匹配（用户实付=原价×0.8）
+    if not plan_key and is_first_payment and amount > 0:
+        original_guess = round(amount / FIRST_PAYMENT_DISCOUNT, 1)
+        for k, v in PLAN_INFO.items():
+            pn = v.get("price_num", 0)
+            if pn > 0 and abs(pn - original_guess) < 0.05:
+                plan_key = k
+                discount_applied = True
+                break
+
     if not plan_key:
-        # 列出可选金额提示
-        prices = sorted(set(
-            str(v["price_num"]) for v in PLAN_INFO.values()
-            if v.get("price_num", 0) > 0
-        ))
+        # 列出可选金额提示（含首充8折价）
+        all_prices = []
+        for v in PLAN_INFO.values():
+            pn = v.get("price_num", 0)
+            if pn > 0:
+                all_prices.append(str(pn))
+                if is_first_payment:
+                    all_prices.append(f"{round(pn * FIRST_PAYMENT_DISCOUNT, 1)}（首充8折）")
+        prices = sorted(set(all_prices), key=lambda x: float(x.split("（")[0]))
         return jsonify({
             "success": False,
             "error": f"未匹配到套餐，请输入正确金额。可选金额：{', '.join(prices)} 元",
@@ -273,13 +298,11 @@ def api_auth_pay_confirm():
 
     # 激活用户
     if plan_info.get("credits", 0) > 0:
-        # 点数包：累加点数
         db = us.get_db()
         db.execute(
             "UPDATE users SET credits_balance = credits_balance + ? WHERE id = ?",
             (plan_info["credits"], uid)
         )
-        db.commit()
         result_msg = f"已到账 {plan_info['credits']} 次点数！"
     else:
         ok, result = us.upgrade_user(uid, plan_key)
@@ -287,8 +310,16 @@ def api_auth_pay_confirm():
             return jsonify({"success": False, "error": str(result)}), 400
         result_msg = f"已升级为 {plan_info['name']}！"
 
-    # 记录流水
+    # 标记已付费
     db = us.get_db()
+    db.execute("UPDATE users SET has_paid = 1 WHERE id = ?", (uid,))
+
+    # 添加首充优惠提示
+    if discount_applied:
+        original_price = plan_info["price_num"]
+        result_msg += f" 🔥首充8折优惠已应用！省了¥{round(original_price - amount, 1)}"
+
+    # 记录流水
     db.execute(
         "INSERT INTO usage_logs (user_id, action, ip) VALUES (?, 'pay_confirm', ?)",
         (uid, request.remote_addr or "unknown")
@@ -301,6 +332,8 @@ def api_auth_pay_confirm():
         "plan": plan_key,
         "plan_name": plan_info["name"],
         "amount": amount,
+        "is_first_payment": is_first_payment,
+        "discount_applied": discount_applied,
     })
 
 

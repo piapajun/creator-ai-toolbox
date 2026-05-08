@@ -55,8 +55,8 @@ PLANS = {
     },
     "pro_lifetime": {
         "name": "永久版",
-        "price": "¥99",
-        "price_num": 99,
+        "price": "¥499",
+        "price_num": 499,
         "duration_days": 36500,
         "limits": {"rewrite": float("inf"), "image_search": float("inf"), "hotboard_analyze": 10},
         "description": "一次购买，永久使用",
@@ -74,12 +74,12 @@ PLANS = {
     },
     "credits_200": {
         "name": "200次点数包",
-        "price": "¥29.9",
-        "price_num": 29.9,
+        "price": "¥49.9",
+        "price_num": 49.9,
         "duration_days": 0,
         "limits": {},
         "credits": 200,
-        "description": "最受欢迎，每次仅¥0.15",
+        "description": "最受欢迎，每次仅¥0.25",
         "badge": "credits",
     },
 }
@@ -152,6 +152,7 @@ def _init_tables(conn):
     _safe_add_column(conn, "users", "wechat_nickname", "TEXT")
     _safe_add_column(conn, "users", "wechat_avatar", "TEXT")
     _safe_add_column(conn, "users", "credits_balance", "INTEGER NOT NULL DEFAULT 0")
+    _safe_add_column(conn, "users", "has_paid", "INTEGER NOT NULL DEFAULT 0")
     _safe_add_column(conn, "activation_codes", "credits", "INTEGER NOT NULL DEFAULT 0")
 
     # 安全创建索引

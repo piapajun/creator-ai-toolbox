@@ -1042,6 +1042,17 @@
                     class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">💰 点数</button>
             </div>
 
+            <!-- 🔥 首次充值8折横幅 -->
+            <div x-show="username && !hasPaid" class="bg-gradient-to-r from-pink-500/20 to-orange-500/20 border border-pink-500/30 rounded-xl p-3 mb-4 fade-in">
+                <div class="flex items-center gap-2">
+                    <span class="text-xl">🔥</span>
+                    <div>
+                        <p class="text-pink-300 text-sm font-bold">首次充值享 8 折优惠！</p>
+                        <p class="text-pink-300/70 text-xs">所有套餐首充特价，<span x-text="pricingTab==='lifetime' ? '永久版只需 ¥399.2' : pricingTab==='credits' ? '点数包更划算' : '月付仅需 ¥23.9'"></span></p>
+                    </div>
+                </div>
+            </div>
+
             <!-- 订阅方案 -->
             <div x-show="pricingTab==='subscribe'" class="space-y-3">
                 <!-- 试用提醒 -->
@@ -1060,6 +1071,7 @@
                             <p class="text-xs text-gray-400">无限AI功能，按月订阅</p>
                         </div>
                         <p class="text-lg font-bold text-purple-400">¥29.9<span class="text-xs text-gray-400">/月</span></p>
+                        <p x-show="!hasPaid" class="text-xs text-pink-400">首充8折 ¥23.9</p>
                     </div>
                     <div class="flex flex-wrap gap-1 text-xs text-gray-400 mb-3">
                         <span class="px-2 py-0.5 rounded bg-purple-500/10">♾️ 无限改写</span>
@@ -1076,6 +1088,7 @@
                             <p class="text-xs text-gray-400">相当于 ¥16.6/月</p>
                         </div>
                         <p class="text-lg font-bold text-green-400">¥199<span class="text-xs text-gray-400">/年</span></p>
+                        <p x-show="!hasPaid" class="text-xs text-pink-400">首充8折 ¥159.2</p>
                     </div>
                     <div class="flex flex-wrap gap-1 text-xs text-gray-400">
                         <span class="px-2 py-0.5 rounded bg-purple-500/10">♾️ 无限改写</span>
@@ -1094,7 +1107,8 @@
                             <p class="font-bold text-white">永久版</p>
                             <p class="text-xs text-gray-400">一次购买，终身使用</p>
                         </div>
-                        <p class="text-lg font-bold text-amber-400">¥99</p>
+                        <p class="text-lg font-bold text-amber-400">¥499</p>
+                        <p x-show="!hasPaid" class="text-xs text-pink-400">首充8折 ¥399.2</p>
                     </div>
                     <div class="flex flex-wrap gap-1 text-xs text-gray-400 mb-3">
                         <span class="px-2 py-0.5 rounded bg-amber-500/10">♾️ 无限改写</span>
@@ -1102,7 +1116,7 @@
                         <span class="px-2 py-0.5 rounded bg-amber-500/10">📊 10次分析/天</span>
                         <span class="px-2 py-0.5 rounded bg-amber-500/10">🔒 永久有效</span>
                     </div>
-                    <p class="text-xs text-amber-300/70">≈ 不到3个月月费，就永久使用</p>
+                    <p class="text-xs text-amber-300/70">≈ 约17个月月费回本，之后全免费</p>
                 </div>
             </div>
 
@@ -1115,6 +1129,7 @@
                             <p class="text-xs text-gray-400">每次仅 ¥0.2 • 用完即止</p>
                         </div>
                         <p class="text-lg font-bold text-cyan-400">¥9.9</p>
+                        <p x-show="!hasPaid" class="text-xs text-pink-400">首充8折 ¥7.9</p>
                     </div>
                     <div class="flex flex-wrap gap-1 text-xs text-gray-400">
                         <span class="px-2 py-0.5 rounded bg-cyan-500/10">✍️ 50次改写</span>
@@ -1126,9 +1141,10 @@
                     <div class="flex justify-between items-start mb-2">
                         <div>
                             <p class="font-bold text-white">200次点数包</p>
-                            <p class="text-xs text-gray-400">每次仅 ¥0.15 • 用完即止</p>
+                            <p class="text-xs text-gray-400">每次仅 ¥0.25 • 用完即止</p>
                         </div>
-                        <p class="text-lg font-bold text-cyan-400">¥29.9</p>
+                        <p class="text-lg font-bold text-cyan-400">¥49.9</p>
+                        <p x-show="!hasPaid" class="text-xs text-pink-400">首充8折 ¥39.9</p>
                     </div>
                     <div class="flex flex-wrap gap-1 text-xs text-gray-400">
                         <span class="px-2 py-0.5 rounded bg-cyan-500/10">✍️ 200次改写</span>
@@ -1162,17 +1178,20 @@
                     <div class="fade-in space-y-3">
                         <p class="text-sm text-white font-medium text-center">确认支付金额</p>
                         <p class="text-xs text-gray-400 text-center">请输入你实际支付的金额，系统自动匹配套餐</p>
+                        <p x-show="!hasPaid" class="text-xs text-pink-400 text-center">🔥 首次充值8折！输入优惠价即可（如月付 ¥23.9）</p>
                         
                         <!-- 快捷金额 -->
                         <div class="flex flex-wrap gap-2 justify-center">
                             <button @click="payAmount='29.9'" :class="payAmount==='29.9' ? 'bg-purple-500 text-white' : 'bg-white/5 text-gray-300 hover:bg-white/10'"
-                                class="px-3 py-1.5 rounded-lg text-xs font-medium transition">¥29.9</button>
+                                class="px-3 py-1.5 rounded-lg text-xs font-medium transition">¥29.9 月付</button>
                             <button @click="payAmount='199'" :class="payAmount==='199' ? 'bg-green-500 text-white' : 'bg-white/5 text-gray-300 hover:bg-white/10'"
-                                class="px-3 py-1.5 rounded-lg text-xs font-medium transition">¥199</button>
-                            <button @click="payAmount='99'" :class="payAmount==='99' ? 'bg-amber-500 text-white' : 'bg-white/5 text-gray-300 hover:bg-white/10'"
-                                class="px-3 py-1.5 rounded-lg text-xs font-medium transition">¥99</button>
+                                class="px-3 py-1.5 rounded-lg text-xs font-medium transition">¥199 年付</button>
+                            <button @click="payAmount='499'" :class="payAmount==='499' ? 'bg-amber-500 text-white' : 'bg-white/5 text-gray-300 hover:bg-white/10'"
+                                class="px-3 py-1.5 rounded-lg text-xs font-medium transition">¥499 永久</button>
+                            <button @click="payAmount='49.9'" :class="payAmount==='49.9' ? 'bg-cyan-500 text-white' : 'bg-white/5 text-gray-300 hover:bg-white/10'"
+                                class="px-3 py-1.5 rounded-lg text-xs font-medium transition">¥49.9 200次</button>
                             <button @click="payAmount='9.9'" :class="payAmount==='9.9' ? 'bg-cyan-500 text-white' : 'bg-white/5 text-gray-300 hover:bg-white/10'"
-                                class="px-3 py-1.5 rounded-lg text-xs font-medium transition">¥9.9</button>
+                                class="px-3 py-1.5 rounded-lg text-xs font-medium transition">¥9.9 50次</button>
                         </div>
 
                         <div class="relative">
@@ -1270,6 +1289,7 @@
                 userLimitsInt: {},
                 userUsed: {},
                 creditsBalance: 0,
+                hasPaid: false,
                 trialDaysLeft: null,
                 // 登录弹窗
                 showLoginModal: false,
@@ -1730,6 +1750,7 @@
                         }
                         this.userUsed = d.today_usage || {};
                         this.creditsBalance = d.credits_balance || 0;
+                        this.hasPaid = d.has_paid || false;
                         this.trialDaysLeft = d.trial_days_left !== undefined ? d.trial_days_left : null;
                     } catch (e) {
                         console.error('Load user status error:', e);
@@ -1792,6 +1813,7 @@
                     this.planName = '免费版';
                     this.trialDaysLeft = null;
                     this.creditsBalance = 0;
+                    this.hasPaid = false;
                     this.userUsed = {};
                     this.userLimits = {};
                     this.userLimitsInt = {};
