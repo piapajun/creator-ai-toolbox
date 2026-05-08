@@ -1562,6 +1562,14 @@
                             }),
                         });
                         const d = await r.json();
+                        if (d.error) {
+                            if (d.code === 'LIMIT_EXCEEDED') {
+                                this.showPricingModal = true;
+                            }
+                            alert(d.error);
+                            this.rewriting = false;
+                            return;
+                        }
                         this.rewriteTitle = d.title;
                         this.rewriteContent = d.content;
                         this.rewriteWordCount = d.word_count;

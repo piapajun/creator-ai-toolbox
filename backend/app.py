@@ -755,6 +755,11 @@ def api_rewrite_titles():
     if not data:
         return jsonify({"error": "请提供内容"}), 400
 
+    # 用量检查
+    allowed, info = check_usage("rewrite")
+    if not allowed:
+        return jsonify({"error": "今日免费改写次数已用完，请升级Pro版", "code": "LIMIT_EXCEEDED", **info}), 429
+
     text = data.get("text", "").strip()
     count = data.get("count", 5)
 
@@ -795,6 +800,11 @@ def api_rewrite_from_hot():
     data = request.get_json()
     if not data:
         return jsonify({"error": "请提供热榜标题"}), 400
+
+    # 用量检查
+    allowed, info = check_usage("rewrite")
+    if not allowed:
+        return jsonify({"error": "今日免费改写次数已用完，请升级Pro版", "code": "LIMIT_EXCEEDED", **info}), 429
 
     hot_title = data.get("title", "").strip()
     angle = data.get("angle", "").strip()
