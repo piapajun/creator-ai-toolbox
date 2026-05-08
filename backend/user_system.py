@@ -55,8 +55,8 @@ PLANS = {
     },
     "pro_lifetime": {
         "name": "永久版",
-        "price": "¥499",
-        "price_num": 499,
+        "price": "¥299",
+        "price_num": 299,
         "duration_days": 36500,
         "limits": {"rewrite": float("inf"), "image_search": float("inf"), "hotboard_analyze": 10},
         "description": "一次购买，永久使用",
@@ -74,8 +74,8 @@ PLANS = {
     },
     "credits_200": {
         "name": "200次点数包",
-        "price": "¥49.9",
-        "price_num": 49.9,
+        "price": "¥39.9",
+        "price_num": 39.9,
         "duration_days": 0,
         "limits": {},
         "credits": 200,
@@ -88,7 +88,7 @@ PLANS = {
 def get_db():
     """获取数据库连接（自动建表）"""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")

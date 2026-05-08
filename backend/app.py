@@ -295,23 +295,25 @@ def api_auth_pay_confirm():
         }), 400
 
     plan_info = PLAN_INFO[plan_key]
+    db = us.get_db()
 
     # 激活用户
     if plan_info.get("credits", 0) > 0:
-        db = us.get_db()
         db.execute(
             "UPDATE users SET credits_balance = credits_balance + ? WHERE id = ?",
             (plan_info["credits"], uid)
         )
         result_msg = f"已到账 {plan_info['credits']} 次点数！"
     else:
+        # upgrade_user 内部有自己的 db 连接和 commit，这里不冲突
         ok, result = us.upgrade_user(uid, plan_key)
         if not ok:
             return jsonify({"success": False, "error": str(result)}), 400
         result_msg = f"已升级为 {plan_info['name']}！"
 
-    # 标记已付费
-    db = us.get_db()
+    # 标记已付费（复用上面的 db，或重新获取）
+    if plan_info.get("credits", 0) <= 0:
+        db = us.get_db()
     db.execute("UPDATE users SET has_paid = 1 WHERE id = ?", (uid,))
 
     # 添加首充优惠提示

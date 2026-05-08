@@ -1048,7 +1048,7 @@
                     <span class="text-xl">🔥</span>
                     <div>
                         <p class="text-pink-300 text-sm font-bold">首次充值享 8 折优惠！</p>
-                        <p class="text-pink-300/70 text-xs">所有套餐首充特价，<span x-text="pricingTab==='lifetime' ? '永久版只需 ¥399.2' : pricingTab==='credits' ? '点数包更划算' : '月付仅需 ¥23.9'"></span></p>
+                        <p class="text-pink-300/70 text-xs">所有套餐首充特价，<span x-text="pricingTab==='lifetime' ? '永久版只需 ¥239.2' : pricingTab==='credits' ? '点数包更划算' : '月付仅需 ¥23.9'"></span></p>
                     </div>
                 </div>
             </div>
@@ -1107,8 +1107,8 @@
                             <p class="font-bold text-white">永久版</p>
                             <p class="text-xs text-gray-400">一次购买，终身使用</p>
                         </div>
-                        <p class="text-lg font-bold text-amber-400">¥499</p>
-                        <p x-show="!hasPaid" class="text-xs text-pink-400">首充8折 ¥399.2</p>
+                        <p class="text-lg font-bold text-amber-400">¥299</p>
+                        <p x-show="!hasPaid" class="text-xs text-pink-400">首充8折 ¥239.2</p>
                     </div>
                     <div class="flex flex-wrap gap-1 text-xs text-gray-400 mb-3">
                         <span class="px-2 py-0.5 rounded bg-amber-500/10">♾️ 无限改写</span>
@@ -1116,7 +1116,7 @@
                         <span class="px-2 py-0.5 rounded bg-amber-500/10">📊 10次分析/天</span>
                         <span class="px-2 py-0.5 rounded bg-amber-500/10">🔒 永久有效</span>
                     </div>
-                    <p class="text-xs text-amber-300/70">≈ 约17个月月费回本，之后全免费</p>
+                    <p class="text-xs text-amber-300/70">≈ 约10个月月费回本，之后全免费</p>
                 </div>
             </div>
 
@@ -1141,10 +1141,10 @@
                     <div class="flex justify-between items-start mb-2">
                         <div>
                             <p class="font-bold text-white">200次点数包</p>
-                            <p class="text-xs text-gray-400">每次仅 ¥0.25 • 用完即止</p>
+                            <p class="text-xs text-gray-400">每次仅 ¥0.20 • 用完即止</p>
                         </div>
-                        <p class="text-lg font-bold text-cyan-400">¥49.9</p>
-                        <p x-show="!hasPaid" class="text-xs text-pink-400">首充8折 ¥39.9</p>
+                        <p class="text-lg font-bold text-cyan-400">¥39.9</p>
+                        <p x-show="!hasPaid" class="text-xs text-pink-400">首充8折 ¥31.9</p>
                     </div>
                     <div class="flex flex-wrap gap-1 text-xs text-gray-400">
                         <span class="px-2 py-0.5 rounded bg-cyan-500/10">✍️ 200次改写</span>
@@ -1186,10 +1186,10 @@
                                 class="px-3 py-1.5 rounded-lg text-xs font-medium transition">¥29.9 月付</button>
                             <button @click="payAmount='199'" :class="payAmount==='199' ? 'bg-green-500 text-white' : 'bg-white/5 text-gray-300 hover:bg-white/10'"
                                 class="px-3 py-1.5 rounded-lg text-xs font-medium transition">¥199 年付</button>
-                            <button @click="payAmount='499'" :class="payAmount==='499' ? 'bg-amber-500 text-white' : 'bg-white/5 text-gray-300 hover:bg-white/10'"
-                                class="px-3 py-1.5 rounded-lg text-xs font-medium transition">¥499 永久</button>
-                            <button @click="payAmount='49.9'" :class="payAmount==='49.9' ? 'bg-cyan-500 text-white' : 'bg-white/5 text-gray-300 hover:bg-white/10'"
-                                class="px-3 py-1.5 rounded-lg text-xs font-medium transition">¥49.9 200次</button>
+                            <button @click="payAmount='299'" :class="payAmount==='299' ? 'bg-amber-500 text-white' : 'bg-white/5 text-gray-300 hover:bg-white/10'"
+                                class="px-3 py-1.5 rounded-lg text-xs font-medium transition">¥299 永久</button>
+                            <button @click="payAmount='39.9'" :class="payAmount==='39.9' ? 'bg-cyan-500 text-white' : 'bg-white/5 text-gray-300 hover:bg-white/10'"
+                                class="px-3 py-1.5 rounded-lg text-xs font-medium transition">¥39.9 200次</button>
                             <button @click="payAmount='9.9'" :class="payAmount==='9.9' ? 'bg-cyan-500 text-white' : 'bg-white/5 text-gray-300 hover:bg-white/10'"
                                 class="px-3 py-1.5 rounded-lg text-xs font-medium transition">¥9.9 50次</button>
                         </div>
