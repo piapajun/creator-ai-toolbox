@@ -1,6 +1,6 @@
 """
-Creator AI Toolbox - 用户系统 & 付费模块 v2
-- 微信OAuth登录
+Creator AI Toolbox - 用户系统 & 付费模块 v3
+- 账号密码注册/登录
 - 多级付费：free / trial(首月免费) / pro_monthly / pro_yearly / pro_lifetime / credits
 - SQLite 数据库
 """
@@ -13,9 +13,6 @@ from datetime import datetime, timedelta
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "toolbox.db")
 
-# ========== 微信配置 ==========
-WECHAT_APPID = os.environ.get("WECHAT_APPID", "")
-WECHAT_SECRET = os.environ.get("WECHAT_SECRET", "")
 ADMIN_KEY = os.environ.get("ADMIN_KEY", "creator2026")
 
 # ========== 套餐定义 ==========
@@ -35,7 +32,7 @@ PLANS = {
         "price_num": 0,
         "duration_days": 30,
         "limits": {"rewrite": 5, "image_search": 5, "hotboard_analyze": 5},
-        "description": "微信登录即享30天免费试用，每天5次AI功能",
+        "description": "注册登录即享30天免费试用，每天5次AI功能",
         "badge": "trial",
     },
     "pro_monthly": {
@@ -100,16 +97,18 @@ def get_db():
 
 
 def _init_tables(conn):
-    """初始化表结构 v2 — 支持微信登录 + 试用 + 点数"""
+    """初始化表结构 v3 — 支持账号密码登录 + 试用 + 点数"""
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
+            username TEXT UNIQUE,
+            password_hash TEXT,
             plan TEXT NOT NULL DEFAULT 'free',
             activation_code TEXT,
             activated_at TEXT,
             expires_at TEXT,
             trial_started_at TEXT,
-            wechat_openid TEXT UNIQUE,
+            wechat_openid TEXT,
             wechat_nickname TEXT,
             wechat_avatar TEXT,
             credits_balance INTEGER NOT NULL DEFAULT 0,
@@ -146,6 +145,8 @@ def _init_tables(conn):
     """)
 
     # 兼容老数据库：逐个补齐新字段
+    _safe_add_column(conn, "users", "username", "TEXT")
+    _safe_add_column(conn, "users", "password_hash", "TEXT")
     _safe_add_column(conn, "users", "trial_started_at", "TEXT")
     _safe_add_column(conn, "users", "wechat_openid", "TEXT")
     _safe_add_column(conn, "users", "wechat_nickname", "TEXT")
@@ -153,8 +154,8 @@ def _init_tables(conn):
     _safe_add_column(conn, "users", "credits_balance", "INTEGER NOT NULL DEFAULT 0")
     _safe_add_column(conn, "activation_codes", "credits", "INTEGER NOT NULL DEFAULT 0")
 
-    # 索引：安全创建（旧表可能没有 wechat_openid 列）
-    _safe_create_index(conn, "idx_users_wechat", "users", "wechat_openid")
+    # 安全创建索引
+    _safe_create_index(conn, "idx_users_username", "users", "username")
 
 
 def _safe_add_column(conn, table, column, typedef):
@@ -174,110 +175,81 @@ def _safe_create_index(conn, idx_name, table, column):
         pass  # 列不存在时跳过
 
 
-# ========== 微信 OAuth ==========
+# ========== 账号密码注册/登录 ==========
 
-def get_wechat_oauth_url(redirect_uri=None):
-    """生成微信OAuth授权URL"""
-    if not WECHAT_APPID:
-        return None
-    if not redirect_uri:
-        redirect_uri = os.environ.get("WECHAT_REDIRECT_URI", "")
-    if not redirect_uri:
-        return None
-    state = uuid.uuid4().hex[:16]
-    from urllib.parse import quote
-    encoded_redirect = quote(redirect_uri, safe='')
-    # connect_redirect=1: 微信PC端适配，确保回调后正确跳转
-    url = (
-        f"https://open.weixin.qq.com/connect/oauth2/authorize"
-        f"?appid={WECHAT_APPID}"
-        f"&redirect_uri={encoded_redirect}"
-        f"&response_type=code"
-        f"&scope=snsapi_userinfo"
-        f"&state={state}"
-        f"&connect_redirect=1"
-        f"#wechat_redirect"
-    )
-    return url, state
+def hash_password(password: str) -> str:
+    """PBKDF2-SHA256 密码哈希"""
+    import hashlib as _hl
+    salt = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
+    return salt.hex() + ':' + dk.hex()
 
 
-def wechat_get_userinfo(code):
-    """用code换取access_token和用户信息"""
-    if not WECHAT_APPID or not WECHAT_SECRET:
-        return None, "微信未配置"
-
-    # Step 1: code → access_token + openid
-    token_url = (
-        f"https://api.weixin.qq.com/sns/oauth2/access_token"
-        f"?appid={WECHAT_APPID}"
-        f"&secret={WECHAT_SECRET}"
-        f"&code={code}"
-        f"&grant_type=authorization_code"
-    )
-    try:
-        r = requests.get(token_url, timeout=10)
-        data = r.json()
-        if "errcode" in data and data["errcode"] != 0:
-            return None, data.get("errmsg", "微信授权失败")
-        access_token = data.get("access_token")
-        openid = data.get("openid")
-        if not openid:
-            return None, "未获取到openid"
-
-        # Step 2: access_token + openid → userinfo
-        userinfo_url = (
-            f"https://api.weixin.qq.com/sns/userinfo"
-            f"?access_token={access_token}"
-            f"&openid={openid}"
-            f"&lang=zh_CN"
-        )
-        r2 = requests.get(userinfo_url, timeout=10)
-        uinfo = r2.json()
-        if "errcode" in uinfo and uinfo["errcode"] != 0:
-            # userinfo失败，至少返回openid
-            return {"openid": openid, "nickname": "微信用户", "headimgurl": ""}, None
-
-        return {
-            "openid": openid,
-            "nickname": uinfo.get("nickname", "微信用户"),
-            "headimgurl": uinfo.get("headimgurl", ""),
-        }, None
-    except Exception as e:
-        return None, str(e)
+def verify_password(password: str, stored_hash: str) -> bool:
+    """验证密码"""
+    if not stored_hash or ':' not in stored_hash:
+        return False
+    salt_hex, dk_hex = stored_hash.split(':', 1)
+    salt = bytes.fromhex(salt_hex)
+    import hashlib as _hl
+    dk = _hl.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
+    return dk.hex() == dk_hex
 
 
-def get_or_create_wechat_user(openid, nickname="", avatar=""):
-    """微信登录：查找或创建用户，新用户自动进入试用期"""
+def register_user(username: str, password: str):
+    """注册新用户。返回 (user_dict, error)"""
     db = get_db()
-    user = db.execute(
-        "SELECT * FROM users WHERE wechat_openid = ?", (openid,)
-    ).fetchone()
+    username = username.strip().lower()
+    if not username or len(username) < 2:
+        return None, "用户名至少2个字符"
+    if not password or len(password) < 4:
+        return None, "密码至少4个字符"
 
-    if user:
-        user = dict(user)
-        # 更新昵称和头像
-        db.execute(
-            "UPDATE users SET wechat_nickname = ?, wechat_avatar = ?, last_seen = datetime('now') WHERE id = ?",
-            (nickname or user.get("wechat_nickname", ""),
-             avatar or user.get("wechat_avatar", ""),
-             user["id"])
-        )
-        db.commit()
-        return user
+    # 检查用户名是否已存在
+    existing = db.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+    if existing:
+        return None, "该用户名已被注册"
 
-    # 新用户 → 创建并进入试用期
-    new_id = f"wx_{uuid.uuid4().hex[:10]}"
+    # 创建用户（新用户自动进入试用期）
+    new_id = f"u_{uuid.uuid4().hex[:10]}"
     now = datetime.now().isoformat()
     trial_ends = (datetime.now() + timedelta(days=30)).isoformat()
+    pwd_hash = hash_password(password)
 
     db.execute(
-        """INSERT INTO users (id, plan, wechat_openid, wechat_nickname, wechat_avatar,
-           trial_started_at, expires_at, created_at, last_seen)
-           VALUES (?, 'trial', ?, ?, ?, ?, ?, ?, ?)""",
-        (new_id, openid, nickname, avatar, now, trial_ends, now, now)
+        """INSERT INTO users (id, username, password_hash, plan, trial_started_at, expires_at, created_at, last_seen)
+           VALUES (?, ?, ?, 'trial', ?, ?, ?, ?)""",
+        (new_id, username, pwd_hash, now, trial_ends, now, now)
     )
     db.commit()
-    return dict(db.execute("SELECT * FROM users WHERE id = ?", (new_id,)).fetchone())
+    user = dict(db.execute("SELECT * FROM users WHERE id = ?", (new_id,)).fetchone())
+    # 不返回密码哈希
+    user.pop("password_hash", None)
+    return user, None
+
+
+def login_user(username: str, password: str):
+    """登录。返回 (user_dict, error)"""
+    db = get_db()
+    username = username.strip().lower()
+    if not username or not password:
+        return None, "请输入用户名和密码"
+
+    user = db.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+    if not user:
+        return None, "用户名不存在"
+    user = dict(user)
+
+    if not verify_password(password, user.get("password_hash", "")):
+        return None, "密码错误"
+
+    # 更新最后登录时间
+    db.execute("UPDATE users SET last_seen = datetime('now') WHERE id = ?", (user["id"],))
+    db.commit()
+
+    # 不返回密码哈希
+    user.pop("password_hash", None)
+    return user, None
 
 
 # ========== 用户操作 ==========

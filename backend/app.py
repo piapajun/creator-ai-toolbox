@@ -151,6 +151,8 @@ def api_auth_status():
 
     resp_data = {
         "user_id": uid[:16],
+        "username": status.get("username", ""),
+        "display_name": status.get("username", "") or uid[:12],
         "plan": plan,
         "plan_name": plan_info.get("name", plan),
         "plan_badge": plan_info.get("badge", "basic"),
@@ -162,8 +164,6 @@ def api_auth_status():
         "today_usage": us.get_today_usage(uid),
         "limits": limits,
         "credits_balance": status.get("credits_balance", 0),
-        "wechat_nickname": status.get("wechat_nickname"),
-        "wechat_avatar": status.get("wechat_avatar"),
         "all_plans": {
             k: {"name": v["name"], "price": v["price"], "price_num": v["price_num"],
                 "duration_days": v["duration_days"], "description": v["description"],
@@ -172,7 +172,6 @@ def api_auth_status():
                 "credits": v.get("credits", 0)}
             for k, v in PLAN_INFO.items()
         },
-        "is_wechat_configured": bool(us.WECHAT_APPID),
     }
     return make_user_response(uid, resp_data)
 
@@ -195,50 +194,34 @@ def api_auth_activate():
     return make_user_response(uid, {"success": True, **result})
 
 
-# ========== 微信登录 API ==========
+# ========== 注册/登录 API ==========
 
-@app.route("/api/auth/wechat/url")
-def api_auth_wechat_url():
-    """获取微信OAuth授权URL（前端打开/生成二维码）"""
-    result = us.get_wechat_oauth_url()
-    if result is None:
-        return jsonify({"success": False, "error": "微信登录未配置，请设置 WECHAT_APPID"})
-    url, state = result
-    return jsonify({"success": True, "url": url, "state": state})
+@app.route("/api/auth/register", methods=["POST"])
+def api_auth_register():
+    """注册新用户"""
+    data = request.get_json() or {}
+    username = data.get("username", "").strip()
+    password = data.get("password", "").strip()
 
-
-@app.route("/api/auth/wechat/callback")
-def api_auth_wechat_callback():
-    """微信OAuth回调"""
-    code = request.args.get("code", "")
-    state = request.args.get("state", "")
-
-    if not code:
-        return "<h3>授权失败</h3><p>未获取到授权码</p>", 400
-
-    userinfo, error = us.wechat_get_userinfo(code)
+    user, error = us.register_user(username, password)
     if error:
-        return f"<h3>微信授权失败</h3><p>{error}</p>", 400
+        return jsonify({"success": False, "error": error}), 400
 
-    openid = userinfo["openid"]
-    user = us.get_or_create_wechat_user(
-        openid,
-        nickname=userinfo.get("nickname", ""),
-        avatar=userinfo.get("headimgurl", "")
-    )
+    return make_user_response(user["id"], {"success": True, "user_id": user["id"][:16], "message": "注册成功！已赠送30天试用"})
 
-    # 设置Cookie，跳转回首页
-    resp = app.make_response("""
-    <html><head><meta charset="utf-8"><title>登录成功</title></head>
-    <body style="font-family:sans-serif;text-align:center;padding-top:80px;background:#0a0a1a;color:#e2e8f0;">
-        <h2>✅ 登录成功！</h2>
-        <p>正在跳转...</p>
-        <script>setTimeout(function(){window.location.href='/?wechat_login=1';},800);</script>
-    </body></html>
-    """)
-    resp.set_cookie("toolbox_uid", user["id"],
-                    max_age=365*24*3600, httponly=False, samesite="Lax")
-    return resp
+
+@app.route("/api/auth/login", methods=["POST"])
+def api_auth_login():
+    """登录"""
+    data = request.get_json() or {}
+    username = data.get("username", "").strip()
+    password = data.get("password", "").strip()
+
+    user, error = us.login_user(username, password)
+    if error:
+        return jsonify({"success": False, "error": error}), 401
+
+    return make_user_response(user["id"], {"success": True, "user_id": user["id"][:16], "message": "登录成功"})
 
 
 @app.route("/api/auth/logout")

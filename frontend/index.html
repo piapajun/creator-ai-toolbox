@@ -461,12 +461,10 @@
     <div class="user-bar px-4 py-2" x-data>
         <div class="max-w-7xl mx-auto flex items-center justify-between text-xs">
             <div class="flex items-center gap-3">
-                <!-- 微信头像 + 昵称 -->
-                <template x-if="wechatNickname">
+                <!-- 用户名 -->
+                <template x-if="username">
                     <div class="flex items-center gap-2">
-                        <img :src="wechatAvatar" x-show="wechatAvatar" class="w-6 h-6 rounded-full border border-purple-500/30"
-                            @error="$event.target.style.display='none'">
-                        <span class="text-gray-300 font-medium" x-text="wechatNickname"></span>
+                        <span class="text-purple-400 font-medium" x-text="'👤 ' + username"></span>
                     </div>
                 </template>
                 <!-- 套餐标识 -->
@@ -500,18 +498,18 @@
                 </template>
             </div>
             <div class="flex items-center gap-3">
-                <!-- 微信登录按钮 -->
-                <button @click="wechatLogin()" x-show="!wechatNickname && isWechatConfigured"
-                    class="bg-green-500/20 text-green-400 border border-green-500/30 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-green-500/30 transition flex items-center gap-1">
-                    <span>💬</span> 微信登录
+                <!-- 登录/注册按钮（未注册用户） -->
+                <button @click="showLoginModal=true" x-show="!username"
+                    class="bg-purple-500/20 text-purple-400 border border-purple-500/30 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-purple-500/30 transition flex items-center gap-1">
+                    <span>👤</span> 登录/注册
                 </button>
                 <button @click="showPricingModal=true" x-show="planBadge!=='pro'"
                     class="bg-gradient-to-r from-purple-500 to-pink-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:shadow-lg hover:shadow-purple-500/20 transition">
                     ⚡ 升级Pro
                 </button>
-                <button @click="doLogout()" x-show="wechatNickname"
+                <button @click="doLogout()" x-show="username"
                     class="text-gray-500 hover:text-gray-300 text-xs transition">退出</button>
-                <span class="text-gray-500" x-show="!wechatNickname" x-text="'ID: '+(userId||'...')"></span>
+                <span class="text-gray-500" x-show="!username" x-text="'ID: '+(userId||'...')"></span>
             </div>
         </div>
     </div>
@@ -1048,10 +1046,10 @@
             <!-- 订阅方案 -->
             <div x-show="pricingTab==='subscribe'" class="space-y-3">
                 <!-- 试用提醒 -->
-                <div x-show="planBadge==='free' && isWechatConfigured && !wechatNickname" class="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-sm">
-                    <p class="text-amber-400 font-medium mb-1">💡 微信登录即享30天免费试用</p>
+                <div x-show="planBadge==='free' && !username" class="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-sm">
+                    <p class="text-amber-400 font-medium mb-1">💡 注册登录即享30天免费试用</p>
                     <p class="text-amber-300/70 text-xs">每天5次AI功能，无需付费</p>
-                    <button @click="wechatLogin()" class="mt-2 w-full bg-green-500/20 text-green-400 border border-green-500/30 px-4 py-2 rounded-lg text-xs font-medium hover:bg-green-500/30 transition">💬 微信登录，立即试用</button>
+                    <button @click="showPricingModal=false; showLoginModal=true" class="mt-2 w-full bg-purple-500/20 text-purple-400 border border-purple-500/30 px-4 py-2 rounded-lg text-xs font-medium hover:bg-purple-500/30 transition">👤 注册登录，立即试用</button>
                 </div>
 
                 <!-- Pro月付 -->
@@ -1168,6 +1166,48 @@
         </div>
     </div>
 
+    <!-- ====== 登录/注册弹窗 ====== -->
+    <div x-show="showLoginModal" x-transition.opacity class="modal-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" @click.self="showLoginModal=false">
+        <div class="modal-panel glass-card rounded-2xl p-6 w-full max-w-sm mx-4">
+            <div class="flex items-center justify-between mb-5">
+                <h3 class="text-lg font-bold text-white">
+                    <span x-text="loginTab==='login' ? '👋 登录' : '✨ 注册'"></span>
+                </h3>
+                <button @click="showLoginModal=false" class="text-gray-500 hover:text-gray-300 text-xl">&times;</button>
+            </div>
+
+            <!-- 切换 Tab -->
+            <div class="flex gap-1 bg-white/5 rounded-xl p-1 mb-5">
+                <button @click="loginTab='login'; loginError=''" 
+                    :class="loginTab==='login' ? 'bg-purple-500/20 text-purple-400' : 'text-gray-400 hover:text-gray-200'"
+                    class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">登录</button>
+                <button @click="loginTab='register'; loginError=''" 
+                    :class="loginTab==='register' ? 'bg-purple-500/20 text-purple-400' : 'text-gray-400 hover:text-gray-200'"
+                    class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">注册</button>
+            </div>
+
+            <form @submit.prevent="doLoginOrRegister()" class="space-y-4">
+                <div>
+                    <label class="text-xs text-gray-400 block mb-1">用户名</label>
+                    <input x-model="loginUsername" type="text" placeholder="请输入用户名"
+                        class="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400 block mb-1">密码</label>
+                    <input x-model="loginPassword" type="password" placeholder="请输入密码"
+                        class="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20">
+                </div>
+                <button type="submit" :disabled="loginLoading"
+                    class="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-3 rounded-xl font-medium btn-glow disabled:opacity-50">
+                    <span x-show="!loginLoading" x-text="loginTab==='login' ? '登录' : '注册（赠送30天试用）'"></span>
+                    <span x-show="loginLoading" class="pulse">处理中...</span>
+                </button>
+                <p x-show="loginError" class="text-red-400 text-xs text-center" x-text="loginError"></p>
+                <p x-show="loginSuccess" class="text-green-400 text-xs text-center" x-text="loginSuccess"></p>
+            </form>
+        </div>
+    </div>
+
     <!-- Footer -->
     <footer class="site-footer mt-16 py-8 text-center text-sm text-gray-500">
         <p>Creator AI Toolbox · 帮头条创作者用AI找到爆款选题</p>
@@ -1182,20 +1222,28 @@
             return {
                 tab: 'hot',
 
-                // ===== 用户 & 付费 v2 =====
+                // ===== 用户 & 付费 v3 (账号密码登录) =====
                 userId: '',
+                displayName: '',
+                username: '',
                 userPlan: 'free',
                 planBadge: 'basic',
                 planName: '免费版',
                 userExpires: '',
                 userLimits: {},
-                userLimitsInt: {},  // 转为整数的限额（显示用）
+                userLimitsInt: {},
                 userUsed: {},
                 creditsBalance: 0,
-                wechatNickname: '',
-                wechatAvatar: '',
-                isWechatConfigured: false,
                 trialDaysLeft: null,
+                // 登录弹窗
+                showLoginModal: false,
+                loginTab: 'login',
+                loginUsername: '',
+                loginPassword: '',
+                loginLoading: false,
+                loginError: '',
+                loginSuccess: '',
+                // 付费弹窗
                 showPricingModal: false,
                 pricingTab: 'subscribe',
                 activateCode: '',
@@ -1622,6 +1670,8 @@
                         const r = await fetch(`${API_BASE}/api/auth/status`);
                         const d = await r.json();
                         this.userId = d.user_id || '';
+                        this.username = d.username || '';
+                        this.displayName = d.display_name || '';
                         this.userPlan = d.plan || 'free';
                         this.planBadge = d.plan_badge || (d.plan === 'pro' ? 'pro' : 'basic');
                         this.planName = d.plan_name || '免费版';
@@ -1634,15 +1684,7 @@
                         }
                         this.userUsed = d.today_usage || {};
                         this.creditsBalance = d.credits_balance || 0;
-                        this.wechatNickname = d.wechat_nickname || '';
-                        this.wechatAvatar = d.wechat_avatar || '';
-                        this.isWechatConfigured = d.is_wechat_configured || false;
                         this.trialDaysLeft = d.trial_days_left !== undefined ? d.trial_days_left : null;
-
-                        // 检测微信登录回调
-                        if (window.location.search.includes('wechat_login=1')) {
-                            window.history.replaceState({}, '', '/');
-                        }
                     } catch (e) {
                         console.error('Load user status error:', e);
                     }
@@ -1682,20 +1724,43 @@
                     this.activating = false;
                 },
 
-                // 微信登录
-                async wechatLogin() {
+                // 登录/注册
+                async doLoginOrRegister() {
+                    const username = this.loginUsername.trim();
+                    const password = this.loginPassword.trim();
+                    if (!username || !password) {
+                        this.loginError = '请填写用户名和密码';
+                        return;
+                    }
+
+                    this.loginLoading = true;
+                    this.loginError = '';
+                    this.loginSuccess = '';
+
+                    const endpoint = this.loginTab === 'login' ? '/api/auth/login' : '/api/auth/register';
                     try {
-                        const r = await fetch(`${API_BASE}/api/auth/wechat/url`);
+                        const r = await fetch(`${API_BASE}${endpoint}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ username, password }),
+                        });
                         const d = await r.json();
-                        if (d.success && d.url) {
-                            // 直接跳转到微信授权页（桌面端自动显示二维码，扫码后回调回本站）
-                            window.location.href = d.url;
+                        if (d.success) {
+                            this.loginSuccess = d.message;
+                            this.loginUsername = '';
+                            this.loginPassword = '';
+                            setTimeout(async () => {
+                                this.showLoginModal = false;
+                                this.loginSuccess = '';
+                                await this.loadUserStatus();
+                            }, 800);
                         } else {
-                            alert(d.error || '微信登录暂未配置');
+                            this.loginError = d.error || '操作失败';
                         }
                     } catch (e) {
-                        console.error('WeChat login error:', e);
+                        this.loginError = '网络错误，请重试';
                     }
+                    this.loginLoading = false;
                 },
 
                 // 退出登录
@@ -1703,10 +1768,19 @@
                     try {
                         await fetch(`${API_BASE}/api/auth/logout`);
                     } catch (e) {}
-                    this.wechatNickname = '';
-                    this.wechatAvatar = '';
+                    this.username = '';
+                    this.displayName = '';
+                    this.userId = '';
+                    this.userPlan = 'free';
+                    this.planBadge = 'basic';
+                    this.planName = '免费版';
                     this.trialDaysLeft = null;
-                    await this.loadUserStatus();
+                    this.creditsBalance = 0;
+                    this.userUsed = {};
+                    this.userLimits = {};
+                    this.userLimitsInt = {};
+                    this.userExpires = '';
+                    // 不调用 loadUserStatus()，避免自动创建新匿名用户
                 },
 
                 // 用量检查包装器 v2
