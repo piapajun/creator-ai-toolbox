@@ -1229,11 +1229,10 @@
                         </div>
                         <p x-show="!payPlanName" class="text-xs text-gray-500 text-center mt-2 mb-3">💡 支付说明里备注你的<strong class="text-purple-400">用户名</strong>，付款后自动到账</p>
 
-                        <!-- 套餐模式：直接确认（金额已定） -->
-                        <button x-show="payPlanName" @click="doPayConfirm()" :disabled="payLoading"
-                            class="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 rounded-xl font-medium btn-glow disabled:opacity-50">
-                            <span x-show="!payLoading">✅ 我已支付 <span x-text="'¥' + payAmount"></span>，立即开通</span>
-                            <span x-show="payLoading" class="pulse">⏳ 验证支付中...</span>
+                        <!-- 套餐模式：先弹确认框，不是直接调用API -->
+                        <button x-show="payPlanName" @click="showPayConfirmModal()"
+                            class="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 rounded-xl font-medium btn-glow">
+                            ✅ 我已支付 <span x-text="'¥' + payAmount"></span>，立即开通
                         </button>
 
                         <!-- 通用模式：进入金额输入 -->
@@ -1243,6 +1242,10 @@
                         </button>
 
                         <p x-show="payError" class="text-red-400 text-xs text-center mt-3" x-text="payError"></p>
+                        <div x-show="paySuccess" class="text-green-400 text-xs text-center mt-3 space-y-1 fade-in">
+                            <p x-text="paySuccess"></p>
+                            <p class="text-gray-400">页面即将刷新...</p>
+                        </div>
                     </div>
                 </template>
 
@@ -1318,6 +1321,45 @@
                         </div>
                     </div>
                 </template>
+            </div>
+        </div>
+    </div>
+
+    <!-- ====== 支付二次确认弹窗 ====== -->
+    <div x-show="payConfirmModalOpen" x-transition.opacity class="modal-overlay fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm" @click.self="payConfirmModalOpen=false">
+        <div class="modal-panel bg-gray-900 border border-red-500/30 rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl shadow-red-500/10">
+            <div class="text-center mb-5">
+                <div class="text-4xl mb-3">⚠️</div>
+                <h3 class="text-lg font-bold text-white mb-2">确认支付</h3>
+                <p class="text-sm text-gray-400">
+                    请确认你已在微信中支付了
+                </p>
+                <p class="text-2xl font-black text-white my-2" x-text="'¥' + payAmount"></p>
+                <p class="text-xs text-gray-500" x-text="'将开通：' + payPlanName"></p>
+            </div>
+
+            <div class="bg-red-500/10 border border-red-500/20 rounded-xl p-3 mb-4">
+                <p class="text-red-400 text-xs text-center">
+                    ⛔ 如果你<strong class="text-red-300">没有真实付款</strong>，点击确认后系统将<strong class="text-red-300">记录异常操作</strong>，可能导致账号被限制
+                </p>
+            </div>
+
+            <div class="space-y-2">
+                <button @click="doPayConfirm()" :disabled="payLoading"
+                    class="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-3 rounded-xl font-bold btn-glow disabled:opacity-50">
+                    <span x-show="!payLoading">✅ 我已付费，确认开通</span>
+                    <span x-show="payLoading" class="pulse">⏳ 处理中...</span>
+                </button>
+                <button @click="payConfirmModalOpen=false; payError=''"
+                    class="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 text-sm py-2.5 rounded-xl transition">
+                    取消，我还没付款
+                </button>
+            </div>
+
+            <p x-show="payError" class="text-red-400 text-xs text-center mt-3" x-text="payError"></p>
+            <div x-show="paySuccess" class="text-green-400 text-xs text-center mt-3 space-y-1">
+                <p x-text="paySuccess"></p>
+                <p class="text-gray-400">页面即将刷新...</p>
             </div>
         </div>
     </div>
@@ -1410,6 +1452,7 @@
                 payLoading: false,
                 payError: '',
                 paySuccess: '',
+                payConfirmModalOpen: false,  // 二次确认弹窗
 
                 // Hot board
                 allHotList: [],    // 全量热榜
@@ -1949,6 +1992,13 @@
                     });
                 },
 
+                // 打开支付二次确认弹窗（套餐模式专用）
+                showPayConfirmModal() {
+                    this.payError = '';
+                    this.paySuccess = '';
+                    this.payConfirmModalOpen = true;
+                },
+
                 // 支付确认 — 用户扫码付款后确认金额，系统自动匹配套餐开通
                 async doPayConfirm() {
                     const amt = this.payAmount.trim();
@@ -1968,7 +2018,9 @@
                         const d = await r.json();
                         if (d.success) {
                             this.paySuccess = d.message;
-                            this.payConfirmMode = true;  // 切换到确认中视图显示结果
+                            this.payConfirmModalOpen = false;  // 关闭确认弹窗
+                            // 成功信息显示在 QR 页面（payConfirmMode 仍为 false，留在 QR 区）
+                            this.payError = '';
                             setTimeout(async () => {
                                 this.showPricingModal = false;
                                 this.payConfirmMode = false;
