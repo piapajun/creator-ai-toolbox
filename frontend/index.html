@@ -1688,14 +1688,10 @@
                         const r = await fetch(`${API_BASE}/api/auth/wechat/url`);
                         const d = await r.json();
                         if (d.success && d.url) {
-                            // 在新窗口打开微信授权（桌面端扫码）
-                            const w = window.open(d.url, 'wechat_login', 'width=500,height=600');
-                            if (!w) {
-                                // 被拦截，直接跳转
-                                window.location.href = d.url;
-                            }
+                            // 直接跳转到微信授权页（桌面端自动显示二维码，扫码后回调回本站）
+                            window.location.href = d.url;
                         } else {
-                            alert('微信登录暂未配置');
+                            alert(d.error || '微信登录暂未配置');
                         }
                     } catch (e) {
                         console.error('WeChat login error:', e);
