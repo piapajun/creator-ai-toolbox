@@ -17,7 +17,15 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
+# 用户系统
+import user_system as us
+
 # ========== 配置 ==========
+# 付费套餐信息（前端展示用）
+PLAN_INFO = {
+    "free": {"name": "免费版", "price": "¥0", "rewrite": 3, "image_search": 3, "analyze": 3},
+    "pro":  {"name": "Pro版", "price": "¥29.9/月", "rewrite": "无限", "image_search": "无限", "analyze": 10},
+}
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "rewrite_api_key.json")
 TOUTIAO_COOKIE_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "toutiao_cookies.json")
 
@@ -84,6 +92,125 @@ def deepseek_chat(prompt, system="你是一个资深内容创作者助手。", m
     if "error" in data:
         return f"API错误: {data['error']['message']}"
     return data["choices"][0]["message"]["content"]
+
+
+# ========== 用户认证 & 用量中间件 ==========
+
+def get_user_id():
+    """从 Cookie 获取用户 ID，没有则返回 None"""
+    uid = request.cookies.get("toolbox_uid", "")
+    if uid and len(uid) > 5:
+        return uid
+    return None
+
+
+def require_user():
+    """获取或创建用户，返回 (user_dict, user_id)"""
+    uid = get_user_id()
+    user = us.get_or_create_user(uid)
+    return user, user["id"]
+
+
+def check_usage(action):
+    """检查用量，返回 (allowed, info_dict)"""
+    uid = get_user_id()
+    if not uid:
+        return True, None  # 未登录用户先放行（前端会提示激活）
+
+    allowed, remaining, limit = us.check_and_record(
+        uid, action, request.remote_addr or "unknown"
+    )
+    return allowed, {"remaining": remaining, "limit": limit}
+
+
+def make_user_response(user_id, data=None):
+    """创建带用户 Cookie 的响应"""
+    resp = jsonify(data or {})
+    resp.set_cookie(
+        "toolbox_uid", user_id,
+        max_age=365*24*3600,  # 1年
+        httponly=False,
+        samesite="Lax"
+    )
+    return resp
+
+
+# ========== 认证 & 付费 API ==========
+
+@app.route("/api/auth/status")
+def api_auth_status():
+    """获取当前用户状态（用量、套餐）"""
+    user, uid = require_user()
+    status = us.get_user_status(uid) or user
+
+    return make_user_response(uid, {
+        "user_id": uid[:16],
+        "plan": status.get("plan", "free"),
+        "activated": status.get("activation_code") is not None,
+        "expires_at": status.get("expires_at"),
+        "expired": status.get("expired", False),
+        "today_usage": us.get_today_usage(uid),
+        "limits": {
+            "rewrite": us.FREE_LIMITS.get("rewrite", 3),
+            "image_search": us.FREE_LIMITS.get("image_search", 3),
+            "hotboard_analyze": us.FREE_LIMITS.get("hotboard_analyze", 3),
+        },
+        "plan_info": PLAN_INFO.get(status.get("plan", "free"), PLAN_INFO["free"]),
+    })
+
+
+@app.route("/api/auth/activate", methods=["POST"])
+def api_auth_activate():
+    """激活会员"""
+    data = request.get_json() or {}
+    code = data.get("code", "").strip().upper()
+
+    if not code:
+        return jsonify({"success": False, "error": "请输入激活码"}), 400
+
+    user, uid = require_user()
+    ok, result = us.activate_user(uid, code)
+
+    if not ok:
+        return jsonify({"success": False, "error": result}), 400
+
+    return make_user_response(uid, {"success": True, **result})
+
+
+# ========== 管理后台 API ==========
+
+@app.route("/api/admin/generate-codes", methods=["POST"])
+def api_admin_generate_codes():
+    """生成激活码（需 ADMIN_KEY）"""
+    data = request.get_json() or {}
+    admin_key = data.get("admin_key", "")
+
+    if admin_key != us.ADMIN_KEY and request.headers.get("X-Admin-Key") != us.ADMIN_KEY:
+        return jsonify({"success": False, "error": "无权限"}), 403
+
+    count = int(data.get("count", 10))
+    plan = data.get("plan", "pro")
+    days = int(data.get("duration_days", 365))
+    batch = data.get("batch_id", "")
+
+    result = us.generate_codes(
+        count=min(count, 100),
+        plan=plan,
+        duration_days=days,
+        batch_id=batch if batch else None
+    )
+    return jsonify({"success": True, **result, "stats": us.get_code_stats()})
+
+
+@app.route("/api/admin/codes")
+def api_admin_list_codes():
+    """查看激活码（需 ADMIN_KEY）"""
+    admin_key = request.args.get("admin_key", "")
+    if admin_key != us.ADMIN_KEY and request.headers.get("X-Admin-Key") != us.ADMIN_KEY:
+        return jsonify({"success": False, "error": "无权限"}), 403
+
+    batch = request.args.get("batch_id")
+    return jsonify({"success": True, "codes": us.list_codes(batch), "stats": us.get_code_stats()})
 
 
 # InterestCategory 中文映射（头条API返回的英文分类标签）
@@ -400,7 +527,11 @@ def api_hotboard_detail():
 
 @app.route("/api/hotboard/analyze")
 def api_hotboard_analyze():
-    """AI分析热榜趋势"""
+    """AI分析热榜趋势（需检查用量）"""
+    allowed, info = check_usage("hotboard_analyze")
+    if not allowed:
+        return jsonify({"error": "今日免费分析次数已用完", "code": "LIMIT_EXCEEDED", **info}), 429
+
     hot_list = get_hot_board()
     analysis = analyze_hot_trends(hot_list)
     return jsonify({"analysis": analysis, "hot_count": len(hot_list)})
@@ -448,10 +579,15 @@ def api_search():
 
 @app.route("/api/rewrite", methods=["POST"])
 def api_rewrite():
-    """AI改写文章 — 支持粘贴原文 或 仅输入主题/关键词生成"""
+    """AI改写文章 — 支持粘贴原文 或 仅输入主题/关键词生成（需检查用量）"""
     data = request.get_json()
     if not data:
         return jsonify({"error": "请提供文章内容"}), 400
+
+    # 用量检查
+    allowed, info = check_usage("rewrite")
+    if not allowed:
+        return jsonify({"error": "今日免费改写次数已用完，请升级Pro版", "code": "LIMIT_EXCEEDED", **info}), 429
 
     original_text = data.get("text", "").strip()
     reference_title = data.get("reference_title", "").strip()
@@ -671,10 +807,15 @@ def get_pexels_key():
 
 @app.route("/api/image-search")
 def api_image_search():
-    """搜索免费可商用图片"""
+    """搜索免费可商用图片（需检查用量）"""
     keyword = request.args.get("keyword", "").strip()
     if not keyword:
         return jsonify({"images": []})
+
+    # 用量检查
+    allowed, info = check_usage("image_search")
+    if not allowed:
+        return jsonify({"error": "今日免费搜图次数已用完，请升级Pro版", "code": "LIMIT_EXCEEDED", **info}), 429
 
     images = []
     pexels_key = get_pexels_key()

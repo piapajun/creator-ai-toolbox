@@ -398,6 +398,28 @@
             .hero-section h1 { font-size: 2rem; }
             .card-hover:hover { transform: translateY(-2px) scale(1.005); }
         }
+        /* === USER PANEL === */
+        .user-bar {
+            background: rgba(255,255,255,0.03);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .plan-badge-free {
+            background: rgba(255,255,255,0.06);
+            color: #9ca3af;
+        }
+        .plan-badge-pro {
+            background: linear-gradient(135deg, rgba(139,92,246,0.2), rgba(236,72,153,0.2));
+            color: #c4b5fd;
+            box-shadow: 0 0 20px rgba(139,92,246,0.2);
+        }
+        .usage-dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.2); display: inline-block; }
+        .usage-dot.used { background: #ef4444; }
+        .usage-dot.remaining { background: #22c55e; }
+        .modal-overlay { animation: modalIn 0.2s ease; }
+        @keyframes modalIn { from { opacity: 0; } to { opacity: 1; } }
+        .modal-panel { animation: modalSlideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        @keyframes modalSlideIn { from { opacity: 0; transform: translateY(20px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        .price-card:hover { border-color: rgba(139,92,246,0.4) !important; box-shadow: 0 0 40px rgba(139,92,246,0.15); }
     </style>
 </head>
 <body class="min-h-screen" x-data="app()">
@@ -424,6 +446,42 @@
             </div>
         </div>
     </nav>
+
+    <!-- ====== 用户状态栏 ====== -->
+    <div class="user-bar px-4 py-2" x-data>
+        <div class="max-w-7xl mx-auto flex items-center justify-between text-xs">
+            <div class="flex items-center gap-3">
+                <!-- 套餐标识 -->
+                <span :class="userPlan==='pro' ? 'plan-badge-pro' : 'plan-badge-free'"
+                    class="px-2.5 py-1 rounded-full text-xs font-medium"
+                    x-text="userPlan==='pro' ? '⚡ Pro版' : '免费版'"></span>
+                <!-- 今日用量 -->
+                <template x-if="userPlan==='free'">
+                    <div class="flex items-center gap-1.5 text-gray-400">
+                        <span>✍️改写</span>
+                        <template x-for="i in userLimits.rewrite||3">
+                            <span class="usage-dot" :class="i <= userUsed.rewrite ? 'used' : 'remaining'"></span>
+                        </template>
+                        <span class="mx-1">|</span>
+                        <span>🖼️搜图</span>
+                        <template x-for="i in userLimits.image_search||3">
+                            <span class="usage-dot" :class="i <= userUsed.image_search ? 'used' : 'remaining'"></span>
+                        </template>
+                    </div>
+                </template>
+                <template x-if="userPlan==='pro'">
+                    <span class="text-purple-400" x-text="'到期: '+(userExpires||'永久')"></span>
+                </template>
+            </div>
+            <div class="flex items-center gap-3">
+                <button @click="showActivateModal=true" x-show="userPlan==='free'"
+                    class="bg-gradient-to-r from-purple-500 to-pink-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:shadow-lg hover:shadow-purple-500/20 transition">
+                    ⚡ 升级Pro
+                </button>
+                <span class="text-gray-500" x-text="'ID: '+(userId||'...')"></span>
+            </div>
+        </div>
+    </div>
 
     <!-- Hero -->
     <header class="hero-section text-white" x-show="tab==='hot'">
@@ -934,6 +992,74 @@
         </div>
     </main>
 
+    <!-- ====== 激活 / 付费弹窗 ====== -->
+    <div x-show="showActivateModal" x-transition.opacity class="modal-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" @click.self="showActivateModal=false">
+        <div class="modal-panel glass-card rounded-2xl p-6 w-full max-w-md mx-4">
+            <!-- 标签切换 -->
+            <div class="flex gap-1 bg-white/5 rounded-xl p-1 mb-6">
+                <button @click="activateTab='code'" :class="activateTab==='code' ? 'bg-purple-500/20 text-purple-400' : 'text-gray-400 hover:text-gray-200'"
+                    class="flex-1 px-4 py-2 rounded-lg text-sm font-medium transition">🔑 激活码</button>
+                <button @click="activateTab='pay'" :class="activateTab==='pay' ? 'bg-purple-500/20 text-purple-400' : 'text-gray-400 hover:text-gray-200'"
+                    class="flex-1 px-4 py-2 rounded-lg text-sm font-medium transition">💳 购买</button>
+            </div>
+
+            <!-- 激活码输入 -->
+            <div x-show="activateTab==='code'" class="space-y-4">
+                <p class="text-sm text-gray-400">输入激活码，立即解锁Pro版</p>
+                <input x-model="activateCode" type="text" placeholder="CTB-XXXX-XXXX-XXXX"
+                    class="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white text-center text-lg tracking-widest uppercase outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20"
+                    @keydown.enter="doActivate()">
+                <button @click="doActivate()" :disabled="activating"
+                    class="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-3 rounded-xl font-medium btn-glow disabled:opacity-50">
+                    <span x-show="!activating">⚡ 立即激活</span>
+                    <span x-show="activating" class="pulse">激活中...</span>
+                </button>
+                <p x-show="activateError" class="text-red-400 text-xs text-center" x-text="activateError"></p>
+                <p x-show="activateSuccess" class="text-green-400 text-xs text-center">✅ 激活成功！刷新页面生效</p>
+            </div>
+
+            <!-- 购买页 -->
+            <div x-show="activateTab==='pay'" class="space-y-4 text-center">
+                <p class="text-sm text-gray-400">扫码支付后获取激活码</p>
+                <div class="bg-white rounded-xl p-4 mx-auto w-48 h-48 flex items-center justify-center">
+                    <!-- 占位二维码 — 后续替换为真实收款码 -->
+                    <div class="text-center text-gray-300 text-xs">
+                        <div class="text-6xl mb-2">📱</div>
+                        <p>微信/支付宝</p>
+                        <p class="mt-1 text-purple-400">¥29.9/月</p>
+                    </div>
+                </div>
+                <p class="text-xs text-gray-500">支付后联系客服获取激活码</p>
+                <button @click="activateTab='code'" class="text-sm text-purple-400 hover:text-purple-300 transition">
+                    ← 已有激活码？去激活
+                </button>
+            </div>
+
+            <!-- 关闭按钮 -->
+            <button @click="showActivateModal=false" class="absolute top-4 right-4 text-gray-500 hover:text-gray-300 text-xl leading-none">&times;</button>
+
+            <!-- 价格卡片对比 -->
+            <div class="mt-6 pt-6 border-t border-white/5">
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="price-card bg-white/3 border border-white/5 rounded-xl p-4 text-center transition">
+                        <p class="text-xs text-gray-400 mb-1">免费版</p>
+                        <p class="text-lg font-bold text-white">¥0</p>
+                        <p class="text-xs text-gray-500 mt-2">✍️ 改写 3次/天</p>
+                        <p class="text-xs text-gray-500">🖼️ 搜图 3次/天</p>
+                    </div>
+                    <div class="price-card bg-purple-500/10 border border-purple-500/20 rounded-xl p-4 text-center transition relative overflow-hidden">
+                        <div class="absolute top-0 right-0 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs px-2 py-0.5 rounded-bl-lg">推荐</div>
+                        <p class="text-xs text-purple-400 mb-1">Pro版</p>
+                        <p class="text-lg font-bold text-white">¥29.9<span class="text-xs text-gray-400">/月</span></p>
+                        <p class="text-xs text-purple-300 mt-2">♾️ 改写 无限</p>
+                        <p class="text-xs text-purple-300">♾️ 搜图 无限</p>
+                        <p class="text-xs text-purple-300">📊 AI分析 10次/天</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Footer -->
     <footer class="site-footer mt-16 py-8 text-center text-sm text-gray-500">
         <p>Creator AI Toolbox · 帮头条创作者用AI找到爆款选题</p>
@@ -947,6 +1073,20 @@
         function app() {
             return {
                 tab: 'hot',
+
+                // ===== 用户 & 付费 =====
+                userId: '',
+                userPlan: 'free',
+                userExpires: '',
+                userLimits: { rewrite: 3, image_search: 3, hotboard_analyze: 3 },
+                userUsed: { rewrite: 0, image_search: 0, hotboard_analyze: 0 },
+                showActivateModal: false,
+                activateTab: 'code',
+                activateCode: '',
+                activating: false,
+                activateError: '',
+                activateSuccess: false,
+
                 // Hot board
                 allHotList: [],    // 全量热榜
                 hotList: [],       // 当前分类下的热榜
@@ -998,6 +1138,7 @@
 
                 async init() {
                     await this.loadHotboard();
+                    await this.loadUserStatus();
                 },
 
                 formatHot(val) {
@@ -1357,6 +1498,73 @@
                         console.error(e);
                     }
                     this.ideaLoading = false;
+                },
+
+                // ===== 用户方法 =====
+                async loadUserStatus() {
+                    try {
+                        const r = await fetch(`${API_BASE}/api/auth/status`);
+                        const d = await r.json();
+                        this.userId = d.user_id || '';
+                        this.userPlan = d.plan || 'free';
+                        this.userExpires = d.expires_at ? d.expires_at.slice(0, 10) : '';
+                        this.userLimits = d.limits || { rewrite: 3, image_search: 3, hotboard_analyze: 3 };
+                        this.userUsed = d.today_usage || {};
+                    } catch (e) {
+                        console.error('Load user status error:', e);
+                    }
+                },
+
+                async refreshUserStatus() {
+                    await this.loadUserStatus();
+                },
+
+                async doActivate() {
+                    if (!this.activateCode.trim()) return;
+                    this.activating = true;
+                    this.activateError = '';
+                    this.activateSuccess = false;
+                    try {
+                        const r = await fetch(`${API_BASE}/api/auth/activate`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ code: this.activateCode.trim() }),
+                        });
+                        const d = await r.json();
+                        if (d.success) {
+                            this.activateSuccess = true;
+                            this.userPlan = 'pro';
+                            this.userExpires = d.expires_at || '';
+                            setTimeout(() => {
+                                this.showActivateModal = false;
+                                this.activateSuccess = false;
+                                this.activateCode = '';
+                                this.loadUserStatus();
+                            }, 1500);
+                        } else {
+                            this.activateError = d.error || '激活失败';
+                        }
+                    } catch (e) {
+                        this.activateError = '网络错误，请重试';
+                    }
+                    this.activating = false;
+                },
+
+                // 用量检查包装器 — 在 API 调用前先检查，超限则弹窗
+                async checkBeforeUse(action, fn) {
+                    await this.loadUserStatus();
+                    if (this.userPlan === 'pro') {
+                        return await fn();
+                    }
+                    const used = this.userUsed[action] || 0;
+                    const limit = this.userLimits[action] || 3;
+                    if (used >= limit) {
+                        this.showActivateModal = true;
+                        throw new Error('LIMIT_EXCEEDED');
+                    }
+                    const result = await fn();
+                    await this.loadUserStatus();
+                    return result;
                 },
             };
         }
