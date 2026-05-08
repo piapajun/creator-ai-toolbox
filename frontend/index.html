@@ -1201,9 +1201,10 @@
                         <p class="text-xs text-gray-500 text-center mt-2 mb-3">💡 支付说明里备注你的<strong class="text-purple-400">用户名</strong>，付款后自动到账</p>
 
                         <!-- 套餐模式：直接确认（金额已定） -->
-                        <button x-show="payPlanName" @click="doPayConfirm()"
-                            class="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 rounded-xl font-medium btn-glow">
-                            ✅ 我已支付，立即开通 <span x-text="'¥' + payAmount"></span>
+                        <button x-show="payPlanName" @click="doPayConfirm()" :disabled="payLoading"
+                            class="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 rounded-xl font-medium btn-glow disabled:opacity-50">
+                            <span x-show="!payLoading">✅ 我已支付，立即开通 <span x-text="'¥' + payAmount"></span></span>
+                            <span x-show="payLoading" class="pulse">⏳ 验证支付中...</span>
                         </button>
 
                         <!-- 通用模式：进入金额输入 -->
@@ -1211,6 +1212,8 @@
                             class="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 rounded-xl font-medium btn-glow">
                             ✅ 我已支付，立即开通
                         </button>
+
+                        <p x-show="payError" class="text-red-400 text-xs text-center mt-3" x-text="payError"></p>
                     </div>
                 </template>
 
@@ -1895,7 +1898,7 @@
                 selectPlan(amount, name) {
                     this.payPlanName = name;
                     this.payAmount = String(amount);
-                    this.payConfirmMode = true;
+                    this.payConfirmMode = false;
                     this.payError = '';
                     this.paySuccess = '';
                 },
@@ -1919,6 +1922,7 @@
                         const d = await r.json();
                         if (d.success) {
                             this.paySuccess = d.message;
+                            this.payConfirmMode = true;  // 切换到确认中视图显示结果
                             setTimeout(async () => {
                                 this.showPricingModal = false;
                                 this.payConfirmMode = false;
