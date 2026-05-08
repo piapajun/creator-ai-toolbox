@@ -1078,6 +1078,10 @@
                         <span class="px-2 py-0.5 rounded bg-purple-500/10">🖼️ 无限搜图</span>
                         <span class="px-2 py-0.5 rounded bg-purple-500/10">📊 10次分析/天</span>
                     </div>
+                    <button @click="selectPlan(!hasPaid ? 23.9 : 29.9, 'Pro月付')"
+                        class="w-full bg-gradient-to-r from-purple-500 to-purple-600 text-white py-2 rounded-lg text-sm font-medium hover:from-purple-400 hover:to-purple-500 transition">
+                        🛒 购买 <span x-text="!hasPaid ? '¥23.9' : '¥29.9'"></span>
+                    </button>
                 </div>
 
                 <!-- Pro年付 -->
@@ -1095,6 +1099,10 @@
                         <span class="px-2 py-0.5 rounded bg-purple-500/10">🖼️ 无限搜图</span>
                         <span class="px-2 py-0.5 rounded bg-purple-500/10">📊 10次分析/天</span>
                     </div>
+                    <button @click="selectPlan(!hasPaid ? 159.2 : 199, 'Pro年付')"
+                        class="w-full mt-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white py-2 rounded-lg text-sm font-medium hover:from-green-400 hover:to-emerald-500 transition">
+                        🛒 购买 <span x-text="!hasPaid ? '¥159.2' : '¥199'"></span>
+                    </button>
                 </div>
             </div>
 
@@ -1117,6 +1125,10 @@
                         <span class="px-2 py-0.5 rounded bg-amber-500/10">🔒 永久有效</span>
                     </div>
                     <p class="text-xs text-amber-300/70">≈ 约10个月月费回本，之后全免费</p>
+                    <button @click="selectPlan(!hasPaid ? 239.2 : 299, '永久版')"
+                        class="w-full mt-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white py-2 rounded-lg text-sm font-medium hover:from-amber-400 hover:to-orange-500 transition">
+                        🛒 购买 <span x-text="!hasPaid ? '¥239.2' : '¥299'"></span>
+                    </button>
                 </div>
             </div>
 
@@ -1135,6 +1147,10 @@
                         <span class="px-2 py-0.5 rounded bg-cyan-500/10">✍️ 50次改写</span>
                         <span class="px-2 py-0.5 rounded bg-cyan-500/10">🖼️ 50次搜图</span>
                     </div>
+                    <button @click="selectPlan(!hasPaid ? 7.9 : 9.9, '50次点数包')"
+                        class="w-full mt-3 bg-gradient-to-r from-cyan-500 to-teal-600 text-white py-2 rounded-lg text-sm font-medium hover:from-cyan-400 hover:to-teal-500 transition">
+                        🛒 购买 <span x-text="!hasPaid ? '¥7.9' : '¥9.9'"></span>
+                    </button>
                 </div>
                 <div class="price-card bg-white/3 border border-cyan-500/20 rounded-xl p-4 transition relative overflow-visible">
                     <div class="absolute -top-2.5 -right-2.5 bg-cyan-500/90 text-white text-xs px-2.5 py-1 rounded-full shadow-lg shadow-cyan-500/30">最划算</div>
@@ -1150,13 +1166,30 @@
                         <span class="px-2 py-0.5 rounded bg-cyan-500/10">✍️ 200次改写</span>
                         <span class="px-2 py-0.5 rounded bg-cyan-500/10">🖼️ 200次搜图</span>
                     </div>
+                    <button @click="selectPlan(!hasPaid ? 31.9 : 39.9, '200次点数包')"
+                        class="w-full mt-3 bg-gradient-to-r from-cyan-500 to-teal-600 text-white py-2 rounded-lg text-sm font-medium hover:from-cyan-400 hover:to-teal-500 transition">
+                        🛒 购买 <span x-text="!hasPaid ? '¥31.9' : '¥39.9'"></span>
+                    </button>
                 </div>
             </div>
 
             <!-- 微信收款码 + 支付确认 -->
             <div class="mt-5 pt-4 border-t border-white/5">
+
+                <!-- ═══ QR码展示区（套餐模式 & 通用模式共用） ═══ -->
                 <template x-if="!payConfirmMode">
                     <div>
+                        <!-- 套餐模式：已选套餐提示 -->
+                        <div x-show="payPlanName" class="bg-purple-500/10 border border-purple-500/20 rounded-xl p-3 mb-4 fade-in">
+                            <p class="text-purple-300 text-sm font-bold text-center">
+                                将开通 <span class="text-white" x-text="payPlanName"></span>
+                            </p>
+                            <p class="text-purple-300/70 text-xs text-center mt-1">
+                                扫码支付 <span class="text-white font-bold" x-text="'¥' + payAmount"></span>
+                                <span x-show="!hasPaid" class="text-pink-400"> 🔥首充8折</span>
+                            </p>
+                        </div>
+
                         <p class="text-xs text-gray-400 text-center mb-3">📱 微信扫码支付，付款后点击下方按钮自动开通</p>
                         <div class="flex justify-center">
                             <div class="bg-white rounded-2xl p-3 shadow-lg">
@@ -1166,15 +1199,23 @@
                             </div>
                         </div>
                         <p class="text-xs text-gray-500 text-center mt-2 mb-3">💡 支付说明里备注你的<strong class="text-purple-400">用户名</strong>，付款后自动到账</p>
-                        <button @click="payConfirmMode=true; payAmount=''; payError=''; paySuccess=''"
+
+                        <!-- 套餐模式：直接确认（金额已定） -->
+                        <button x-show="payPlanName" @click="doPayConfirm()"
+                            class="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 rounded-xl font-medium btn-glow">
+                            ✅ 我已支付，立即开通 <span x-text="'¥' + payAmount"></span>
+                        </button>
+
+                        <!-- 通用模式：进入金额输入 -->
+                        <button x-show="!payPlanName" @click="payConfirmMode=true; payError=''; paySuccess=''"
                             class="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 rounded-xl font-medium btn-glow">
                             ✅ 我已支付，立即开通
                         </button>
                     </div>
                 </template>
 
-                <!-- 支付确认表单 -->
-                <template x-if="payConfirmMode">
+                <!-- ═══ 手动输入金额模式（仅当未预选套餐时） ═══ -->
+                <template x-if="payConfirmMode && !payPlanName">
                     <div class="fade-in space-y-3">
                         <p class="text-sm text-white font-medium text-center">确认支付金额</p>
                         <p class="text-xs text-gray-400 text-center">请输入你实际支付的金额，系统自动匹配套餐</p>
@@ -1207,8 +1248,36 @@
                             <span x-show="payLoading" class="pulse">开通中...</span>
                         </button>
 
-                        <button @click="payConfirmMode=false; payError=''; paySuccess=''"
+                        <button @click="payConfirmMode=false; payError=''; paySuccess=''; payPlanName=''"
                             class="w-full text-gray-400 hover:text-gray-300 text-xs py-1 transition">← 返回</button>
+
+                        <p x-show="payError" class="text-red-400 text-xs text-center" x-text="payError"></p>
+                        <div x-show="paySuccess" class="text-green-400 text-xs text-center space-y-1">
+                            <p x-text="paySuccess"></p>
+                            <p class="text-gray-400">页面即将刷新...</p>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- ═══ 套餐模式确认中（loading/success/error 状态） ═══ -->
+                <template x-if="payConfirmMode && payPlanName">
+                    <div class="fade-in space-y-3">
+                        <p class="text-sm text-white font-medium text-center">
+                            将开通 <span class="text-purple-300" x-text="payPlanName"></span>
+                        </p>
+                        <p class="text-xs text-gray-400 text-center">
+                            支付金额 <span class="text-white font-bold" x-text="'¥' + payAmount"></span>
+                            <span x-show="!hasPaid" class="text-pink-400 ml-1">🔥首充8折</span>
+                        </p>
+
+                        <button @click="doPayConfirm()" :disabled="payLoading"
+                            class="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-3 rounded-xl font-medium btn-glow disabled:opacity-50">
+                            <span x-show="!payLoading">⚡ 确认开通</span>
+                            <span x-show="payLoading" class="pulse">开通中...</span>
+                        </button>
+
+                        <button @click="payConfirmMode=false; payPlanName=''; payError=''; paySuccess=''"
+                            class="w-full text-gray-400 hover:text-gray-300 text-xs py-1 transition">← 返回重新选择</button>
 
                         <p x-show="payError" class="text-red-400 text-xs text-center" x-text="payError"></p>
                         <div x-show="paySuccess" class="text-green-400 text-xs text-center space-y-1">
@@ -1305,6 +1374,7 @@
                 // 支付确认
                 payConfirmMode: false,
                 payAmount: '',
+                payPlanName: '',    // 预选套餐名（有值=套餐模式，空=手动输入）
                 payLoading: false,
                 payError: '',
                 paySuccess: '',
@@ -1821,6 +1891,15 @@
                     // 不调用 loadUserStatus()，避免自动创建新匿名用户
                 },
 
+                // 选择套餐直接购买 — 点击卡片「购买」按钮，自动填好金额
+                selectPlan(amount, name) {
+                    this.payPlanName = name;
+                    this.payAmount = String(amount);
+                    this.payConfirmMode = true;
+                    this.payError = '';
+                    this.paySuccess = '';
+                },
+
                 // 支付确认 — 用户扫码付款后确认金额，系统自动匹配套餐开通
                 async doPayConfirm() {
                     const amt = this.payAmount.trim();
@@ -1845,6 +1924,7 @@
                                 this.payConfirmMode = false;
                                 this.paySuccess = '';
                                 this.payAmount = '';
+                                this.payPlanName = '';
                                 await this.loadUserStatus();
                             }, 1500);
                         } else {
