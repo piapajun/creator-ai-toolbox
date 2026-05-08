@@ -11,11 +11,24 @@ import urllib.parse
 from datetime import datetime
 
 import requests
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, g
 from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)
+
+# 自动为匿名用户设置持久化 Cookie（使其每日限额计数生效）
+@app.after_request
+def _set_toolbox_cookie(response):
+    uid = g.pop('toolbox_uid', None)
+    if uid and 'toolbox_uid' not in (response.headers.get('Set-Cookie', '')):
+        response.set_cookie(
+            "toolbox_uid", uid,
+            max_age=365*24*3600,
+            httponly=False,
+            samesite="Lax"
+        )
+    return response
 
 # 用户系统
 import user_system as us
@@ -102,18 +115,16 @@ def get_user_id():
 
 
 def require_user():
-    """获取或创建用户，返回 (user_dict, user_id)"""
+    """获取或创建用户，返回 (user_dict, user_id)。自动设置 cookie。"""
     uid = get_user_id()
     user = us.get_or_create_user(uid)
+    g.toolbox_uid = user["id"]
     return user, user["id"]
 
 
 def check_usage(action):
-    """检查用量，返回 (allowed, info_dict)"""
-    uid = get_user_id()
-    if not uid:
-        return True, None  # 未登录用户先放行（前端会提示激活）
-
+    """检查用量。匿名用户按 free 计划（3次/天），注册用户按套餐限制。"""
+    user, uid = require_user()
     allowed, remaining, limit = us.check_and_record(
         uid, action, request.remote_addr or "unknown"
     )
@@ -399,6 +410,28 @@ def api_admin_list_codes():
 
     batch = request.args.get("batch_id")
     return jsonify({"success": True, "codes": us.list_codes(batch), "stats": us.get_code_stats()})
+
+
+@app.route("/api/admin/stats")
+def api_admin_stats():
+    """后台数据看板（需 ADMIN_KEY）"""
+    admin_key = request.args.get("admin_key", "")
+    if admin_key != us.ADMIN_KEY and request.headers.get("X-Admin-Key") != us.ADMIN_KEY:
+        return jsonify({"success": False, "error": "无权限"}), 403
+
+    return jsonify({"success": True, **us.admin_stats()})
+
+
+@app.route("/api/admin/reset", methods=["POST"])
+def api_admin_reset():
+    """清零测试数据（需 ADMIN_KEY）"""
+    data = request.get_json() or {}
+    admin_key = data.get("admin_key", "") or request.headers.get("X-Admin-Key", "")
+    if admin_key != us.ADMIN_KEY:
+        return jsonify({"success": False, "error": "无权限"}), 403
+
+    result = us.reset_all_data()
+    return jsonify({"success": True, **result})
 
 
 # InterestCategory 中文映射（头条API返回的英文分类标签）

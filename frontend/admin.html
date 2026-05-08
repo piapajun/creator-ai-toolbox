@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Creator AI Toolbox · 后台看板</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        :root { --bg: #0a0a1a; --card: rgba(255,255,255,0.04); --border: rgba(255,255,255,0.08); }
+        body { font-family: 'Noto Sans SC', 'Inter', sans-serif; background: var(--bg); color: #e2e8f0; }
+        .glass { background: var(--card); backdrop-filter: blur(20px); border: 1px solid var(--border); }
+        .stat-card { transition: all 0.3s ease; }
+        .stat-card:hover { border-color: rgba(139,92,246,0.3) !important; box-shadow: 0 8px 30px rgba(139,92,246,0.1); }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .fade-in { animation: fadeIn 0.5s ease; }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+    <div class="max-w-7xl mx-auto space-y-6">
+        <!-- Header -->
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-2xl font-black text-white">📊 Creator AI Toolbox</h1>
+                <p class="text-gray-400 text-sm mt-1">后台数据看板 · 实时刷新</p>
+            </div>
+            <div class="flex gap-3 items-center">
+                <span id="statusDot" class="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse"></span>
+                <span id="updateTime" class="text-xs text-gray-500"></span>
+                <button onclick="refresh()" class="glass px-4 py-2 rounded-xl text-sm text-purple-400 hover:text-white hover:border-purple-500/30 transition">🔄 刷新</button>
+                <button onclick="resetData()" id="resetBtn" class="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-2 rounded-xl text-sm hover:bg-red-500/20 transition">🗑️ 清零数据</button>
+            </div>
+        </div>
+
+        <!-- Stat Cards Row -->
+        <div id="statCards" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            <!-- filled by JS -->
+        </div>
+
+        <!-- Charts Row -->
+        <div class="grid lg:grid-cols-2 gap-6">
+            <!-- Weekly Trend -->
+            <div class="glass rounded-2xl p-5 fade-in">
+                <h3 class="text-sm font-bold text-white/80 mb-4">📈 本周每日调用趋势</h3>
+                <div class="h-64"><canvas id="trendChart"></canvas></div>
+            </div>
+            <!-- Action Breakdown -->
+            <div class="glass rounded-2xl p-5 fade-in">
+                <h3 class="text-sm font-bold text-white/80 mb-4">🔢 功能使用分布</h3>
+                <div class="h-64 flex items-center"><canvas id="actionChart"></canvas></div>
+            </div>
+        </div>
+
+        <!-- Users + Recent -->
+        <div class="grid lg:grid-cols-2 gap-6">
+            <!-- Plan Distribution -->
+            <div class="glass rounded-2xl p-5 fade-in">
+                <h3 class="text-sm font-bold text-white/80 mb-4">👥 套餐分布</h3>
+                <div class="h-56"><canvas id="planChart"></canvas></div>
+            </div>
+            <!-- Recent Registrations -->
+            <div class="glass rounded-2xl p-5 fade-in max-h-[400px] overflow-y-auto">
+                <h3 class="text-sm font-bold text-white/80 mb-4">🆕 最近注册</h3>
+                <div id="recentList" class="space-y-1.5 text-xs"></div>
+                <div id="noRecent" class="text-gray-500 text-center py-8">暂无新注册用户</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = '/api/admin/stats?admin_key=creator2026';
+        const RESET_API = '/api/admin/reset';
+        let trendChart, actionChart, planChart;
+
+        const COLORS = {
+            free: '#6b7280', trial: '#f59e0b', pro_monthly: '#8b5cf6',
+            pro_yearly: '#10b981', pro_lifetime: '#ec4899',
+            credits_50: '#06b6d4', credits_200: '#3b82f6',
+            rewrite: '#8b5cf6', image_search: '#ec4899',
+            hotboard_analyze: '#06b6d4', pay_confirm: '#10b981',
+        };
+
+        const PLAN_LABELS = {
+            free:'🆓 免费', trial:'🎁 试用', pro_monthly:'⚡Pro月', pro_yearly:'📅Pro年',
+            pro_lifetime:'♾️永久版', credits_50:'💰50次', credits_200:'💰200次'
+        };
+        const ACTION_LABELS = {
+            rewrite:'✍️改写', image_search:'🖼️搜图', hotboard_analyze:'📊分析', pay_confirm:'💳支付'
+        };
+
+        async function load() {
+            try {
+                const r = await fetch(API);
+                const d = await r.json();
+                document.getElementById('updateTime').textContent = new Date(d.updated_at).toLocaleTimeString('zh-CN');
+                return d;
+            } catch(e) {
+                document.getElementById('statusDot').className = 'w-2.5 h-2.5 rounded-full bg-red-500';
+                console.error(e);
+                return null;
+            }
+        }
+
+        function renderStats(d) {
+            if (!d) return;
+
+            // Stat cards
+            const cards = [
+                { icon:'👥', label:'总用户', value:d.users?.total||0, color:'text-purple-400' },
+                { icon:'✅', label:'已注册', value:d.users?.registered||0, color:'text-green-400' },
+                { icon:'👻', label:'匿名', value:d.users?.anonymous||0, color:'text-gray-400' },
+                { icon:'🔥', label:'今日活跃', value:d.users?.active_today||0, color:'text-amber-400' },
+                { icon:'⚡', label:'今日调用', value:d.today?.total_calls||0, color:'text-cyan-400' },
+                { icon:'📦', label:'累计调用', value:d.total?.total_calls||0, color:'text-pink-400' },
+            ];
+
+            const container = document.getElementById('statCards');
+            container.innerHTML = cards.map(c =>
+                `<div class="glass stat-card rounded-xl p-4 text-center">
+                    <div class="text-2xl mb-1">${c.icon}</div>
+                    <div class="text-2xl font-black ${c.color}">${c.value}</div>
+                    <div class="text-xs text-gray-500 mt-1">${c.label}</div>
+                </div>`
+            ).join('');
+
+            // Weekly trend chart
+            const days = Object.keys(d.week_trend||{});
+            const vals = Object.values(d.week_trend||{});
+            const dayLabels = days.map(dd => dd.slice(5));
+
+            if (trendChart) trendChart.destroy();
+            trendChart = new Chart(document.getElementById('trendChart'), {
+                type: 'bar',
+                data: {
+                    labels: dayLabels,
+                    datasets: [{
+                        label: 'API调用',
+                        data: vals,
+                        backgroundColor: vals.map(v => v > 0 ? 'rgba(139,92,246,0.5)' : 'rgba(255,255,255,0.05)'),
+                        borderColor: 'rgba(139,92,246,0.8)',
+                        borderWidth: 1,
+                        borderRadius: 6,
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: '#6b7280' }, grid: { color: 'rgba(255,255,255,0.03)' } },
+                        y: { ticks: { color: '#6b7280' }, grid: { color: 'rgba(255,255,255,0.03)' }, beginAtZero: true }
+                    }
+                }
+            });
+
+            // Action breakdown - donut
+            const actions = d.today?.by_action || {};
+            const actionLabels = Object.keys(actions).map(k => ACTION_LABELS[k] || k);
+            const actionData = Object.values(actions);
+            const actionColors = Object.keys(actions).map(k => COLORS[k] || '#6b7280');
+
+            if (actionChart) actionChart.destroy();
+            actionChart = new Chart(document.getElementById('actionChart'), {
+                type: 'doughnut',
+                data: {
+                    labels: actionLabels,
+                    datasets: [{ data: actionData, backgroundColor: actionColors, borderColor: '#0a0a1a', borderWidth: 3 }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'right', labels: { color: '#9ca3af', padding: 12, font: { size: 11 } } } }
+                }
+            });
+
+            // Plan distribution - pie
+            const plans = d.users?.by_plan || {};
+            const planLabels = Object.keys(plans).map(k => PLAN_LABELS[k] || k);
+            const planData = Object.values(plans);
+            const planColors = Object.keys(plans).map(k => COLORS[k] || '#6b7280');
+
+            if (planChart) planChart.destroy();
+            planChart = new Chart(document.getElementById('planChart'), {
+                type: 'pie',
+                data: {
+                    labels: planLabels,
+                    datasets: [{ data: planData, backgroundColor: planColors, borderColor: '#0a0a1a', borderWidth: 3 }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'right', labels: { color: '#9ca3af', padding: 10, font: { size: 11 } } } }
+                }
+            });
+
+            // Recent registrations
+            const recents = d.recent_registrations || [];
+            const recList = document.getElementById('recentList');
+            const noRec = document.getElementById('noRecent');
+            if (recents.length === 0) {
+                recList.innerHTML = '';
+                noRec.style.display = 'block';
+            } else {
+                noRec.style.display = 'none';
+                recList.innerHTML = recents.slice(0, 15).map(u => {
+                    const planColor = COLORS[u.plan] || '#6b7280';
+                    const planName = PLAN_LABELS[u.plan] || u.plan;
+                    return `<div class="flex items-center gap-3 py-2 border-b border-white/5">
+                        <div class="w-8 h-8 rounded-lg flex items-center justify-center text-sm" style="background:${planColor}20;color:${planColor}">👤</div>
+                        <div class="flex-1"><span class="text-white/80 font-medium">${u.username}</span>
+                            <span class="text-gray-500 ml-2">${new Date(u.created_at).toLocaleDateString('zh-CN')}</span></div>
+                        <span class="px-2 py-0.5 rounded text-xs" style="background:${planColor}15;color:${planColor}">${planName}</span>
+                    </div>`;
+                }).join('');
+            }
+        }
+
+        async function refresh() { const d = await load(); renderStats(d); }
+
+        async function resetData() {
+            if (!confirm('⚠️ 确定要清空所有数据吗？\n\n这将删除：\n• 所有测试用户账号\n• 所有用量记录\n• 保留数据库结构\n\n此操作不可恢复！')) return;
+
+            const btn = document.getElementById('resetBtn');
+            btn.disabled = true;
+            btn.textContent = '⏳ 清零中...';
+
+            try {
+                const r = await fetch(RESET_API, {
+                    method: 'POST',
+                    headers: { 'Content-Type':'application/json', 'X-Admin-Key':'creator2026' },
+                    body: JSON.stringify({ admin_key: 'creator2026' })
+                });
+                const d = await r.json();
+                if (d.success) {
+                    alert(`✅ 数据已清零！\n• 删除用户: ${d.deleted_users} 个\n• 删除记录: ${d.deleted_logs} 条`);
+                    refresh();
+                } else {
+                    alert('❌ ' + (d.error || '操作失败'));
+                }
+            } catch(e) {
+                alert('❌ 网络错误: ' + e.message);
+            }
+            btn.disabled = false;
+            btn.textContent = '🗑️ 清零数据';
+        }
+
+        // Init
+        refresh();
+        setInterval(refresh, 30000); // 30秒自动刷新
+    </script>
+</body>
+</html>

@@ -544,3 +544,101 @@ def get_code_stats():
     total = db.execute("SELECT COUNT(*) as cnt FROM activation_codes").fetchone()["cnt"]
     used = db.execute("SELECT COUNT(*) as cnt FROM activation_codes WHERE used_by IS NOT NULL").fetchone()["cnt"]
     return {"total": total, "used": used, "available": total - used}
+
+
+def admin_stats():
+    """后台数据看板 — 用户、用量、活跃度等全览"""
+    db = get_db()
+    now = datetime.now()
+    today = now.strftime("%Y-%m-%d")
+    week_ago = (now - timedelta(days=7)).strftime("%Y-%m-%d")
+
+    # 用户概况
+    total_users = db.execute("SELECT COUNT(*) as cnt FROM users").fetchone()["cnt"]
+    registered = db.execute("SELECT COUNT(*) as cnt FROM users WHERE username IS NOT NULL AND username != ''").fetchone()["cnt"]
+    anon = total_users - registered
+    by_plan = {}
+    for row in db.execute("SELECT plan, COUNT(*) as cnt FROM users GROUP BY plan").fetchall():
+        by_plan[row["plan"]] = row["cnt"]
+
+    # 今日用量
+    today_calls = db.execute(
+        "SELECT action, COUNT(*) as cnt FROM usage_logs WHERE created_at >= ? GROUP BY action",
+        (today,)
+    ).fetchall()
+
+    # 本周每日用量趋势
+    daily_trend = {}
+    for i in range(6, -1, -1):
+        day = (now - timedelta(days=i)).strftime("%Y-%m-%d")
+        cnt = db.execute(
+            "SELECT COUNT(*) as cnt FROM usage_logs WHERE created_at >= ? AND created_at < ?",
+            (day, f"{day}T23:59:59")
+        ).fetchone()["cnt"]
+        daily_trend[day] = cnt
+
+    # 最近注册（7天内）
+    recent_regs = [
+        dict(r) for r in db.execute(
+            "SELECT username, plan, created_at, last_seen FROM users "
+            "WHERE username IS NOT NULL AND username != '' AND created_at >= ? "
+            "ORDER BY created_at DESC LIMIT 20",
+            (week_ago,)
+        ).fetchall()
+    ]
+
+    # 活跃用户（今天有过操作）
+    active_today = db.execute(
+        "SELECT COUNT(DISTINCT user_id) as cnt FROM usage_logs WHERE created_at >= ?",
+        (today,)
+    ).fetchone()["cnt"]
+
+    # 累计统计
+    total_usage = db.execute("SELECT COUNT(*) as cnt FROM usage_logs").fetchone()["cnt"]
+    usage_by_action = {}
+    for row in db.execute("SELECT action, COUNT(*) as cnt FROM usage_logs GROUP BY action ORDER BY cnt DESC").fetchall():
+        usage_by_action[row["action"]] = row["cnt"]
+
+    return {
+        "updated_at": now.isoformat(),
+        "users": {
+            "total": total_users,
+            "registered": registered,
+            "anonymous": anon,
+            "by_plan": by_plan,
+            "active_today": active_today,
+        },
+        "today": {
+            "date": today,
+            "total_calls": sum(r["cnt"] for r in today_calls),
+            "by_action": {r["action"]: r["cnt"] for r in today_calls},
+        },
+        "week_trend": daily_trend,
+        "recent_registrations": recent_regs[:10],
+        "total": {
+            "total_calls": total_usage,
+            "by_action": usage_by_action,
+        },
+    }
+
+
+def reset_all_data():
+    """清零所有数据 — 删除用户和用量记录，保留数据库结构"""
+    db = get_db()
+    # 统计删除前数据
+    users_count = db.execute("SELECT COUNT(*) as cnt FROM users").fetchone()["cnt"]
+    logs_count = db.execute("SELECT COUNT(*) as cnt FROM usage_logs").fetchone()["cnt"]
+
+    # 删除所有用量记录
+    db.execute("DELETE FROM usage_logs")
+    # 删除所有用户
+    db.execute("DELETE FROM users")
+    # 删除激活码记录
+    db.execute("DELETE FROM activation_codes")
+    db.commit()
+
+    return {
+        "deleted_users": users_count,
+        "deleted_logs": logs_count,
+        "message": f"已清空 {users_count} 个用户和 {logs_count} 条用量记录"
+    }
