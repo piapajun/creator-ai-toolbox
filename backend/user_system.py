@@ -185,11 +185,13 @@ def get_wechat_oauth_url(redirect_uri=None):
     if not redirect_uri:
         return None
     state = uuid.uuid4().hex[:16]
+    from urllib.parse import quote
+    encoded_redirect = quote(redirect_uri, safe='')
     # connect_redirect=1: 微信PC端适配，确保回调后正确跳转
     url = (
         f"https://open.weixin.qq.com/connect/oauth2/authorize"
         f"?appid={WECHAT_APPID}"
-        f"&redirect_uri={redirect_uri}"
+        f"&redirect_uri={encoded_redirect}"
         f"&response_type=code"
         f"&scope=snsapi_userinfo"
         f"&state={state}"
