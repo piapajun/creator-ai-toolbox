@@ -412,6 +412,16 @@
             color: #c4b5fd;
             box-shadow: 0 0 20px rgba(139,92,246,0.2);
         }
+        .plan-badge-trial {
+            background: linear-gradient(135deg, rgba(251,191,36,0.2), rgba(245,158,11,0.2));
+            color: #fcd34d;
+            box-shadow: 0 0 15px rgba(251,191,36,0.15);
+        }
+        .plan-badge-credits {
+            background: linear-gradient(135deg, rgba(34,211,238,0.2), rgba(6,182,212,0.2));
+            color: #67e8f9;
+            box-shadow: 0 0 15px rgba(34,211,238,0.15);
+        }
         .usage-dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.2); display: inline-block; }
         .usage-dot.used { background: #ef4444; }
         .usage-dot.remaining { background: #22c55e; }
@@ -447,38 +457,61 @@
         </div>
     </nav>
 
-    <!-- ====== 用户状态栏 ====== -->
+    <!-- ====== 用户状态栏 v2 ====== -->
     <div class="user-bar px-4 py-2" x-data>
         <div class="max-w-7xl mx-auto flex items-center justify-between text-xs">
             <div class="flex items-center gap-3">
+                <!-- 微信头像 + 昵称 -->
+                <template x-if="wechatNickname">
+                    <div class="flex items-center gap-2">
+                        <img :src="wechatAvatar" x-show="wechatAvatar" class="w-6 h-6 rounded-full border border-purple-500/30"
+                            @error="$event.target.style.display='none'">
+                        <span class="text-gray-300 font-medium" x-text="wechatNickname"></span>
+                    </div>
+                </template>
                 <!-- 套餐标识 -->
-                <span :class="userPlan==='pro' ? 'plan-badge-pro' : 'plan-badge-free'"
+                <span :class="planBadge==='pro' ? 'plan-badge-pro' : planBadge==='trial' ? 'plan-badge-trial' : planBadge==='credits' ? 'plan-badge-credits' : 'plan-badge-free'"
                     class="px-2.5 py-1 rounded-full text-xs font-medium"
-                    x-text="userPlan==='pro' ? '⚡ Pro版' : '免费版'"></span>
+                    x-text="planBadge==='pro' ? '⚡ Pro版' : planBadge==='trial' ? '🎁 试用中' : planBadge==='credits' ? '💰 点数' : '免费版'"></span>
+                <!-- 试用倒计时 -->
+                <template x-if="trialDaysLeft !== null && trialDaysLeft >= 0">
+                    <span class="text-amber-400/80" x-text="'⏳ 试用剩余'+trialDaysLeft+'天'"></span>
+                </template>
+                <!-- 点数余额 -->
+                <template x-if="creditsBalance > 0">
+                    <span class="text-cyan-400" x-text="'💰 点数余额: '+creditsBalance"></span>
+                </template>
                 <!-- 今日用量 -->
-                <template x-if="userPlan==='free'">
+                <template x-if="planBadge !== 'pro' && planBadge !== 'credits'">
                     <div class="flex items-center gap-1.5 text-gray-400">
                         <span>✍️改写</span>
-                        <template x-for="i in userLimits.rewrite||3">
-                            <span class="usage-dot" :class="i <= userUsed.rewrite ? 'used' : 'remaining'"></span>
+                        <template x-for="i in (userLimitsInt.rewrite||3)">
+                            <span class="usage-dot" :class="i <= (userUsed.rewrite||0) ? 'used' : 'remaining'"></span>
                         </template>
                         <span class="mx-1">|</span>
                         <span>🖼️搜图</span>
-                        <template x-for="i in userLimits.image_search||3">
-                            <span class="usage-dot" :class="i <= userUsed.image_search ? 'used' : 'remaining'"></span>
+                        <template x-for="i in (userLimitsInt.image_search||3)">
+                            <span class="usage-dot" :class="i <= (userUsed.image_search||0) ? 'used' : 'remaining'"></span>
                         </template>
                     </div>
                 </template>
-                <template x-if="userPlan==='pro'">
+                <template x-if="planBadge==='pro'">
                     <span class="text-purple-400" x-text="'到期: '+(userExpires||'永久')"></span>
                 </template>
             </div>
             <div class="flex items-center gap-3">
-                <button @click="showActivateModal=true" x-show="userPlan==='free'"
+                <!-- 微信登录按钮 -->
+                <button @click="wechatLogin()" x-show="!wechatNickname && isWechatConfigured"
+                    class="bg-green-500/20 text-green-400 border border-green-500/30 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-green-500/30 transition flex items-center gap-1">
+                    <span>💬</span> 微信登录
+                </button>
+                <button @click="showPricingModal=true" x-show="planBadge!=='pro'"
                     class="bg-gradient-to-r from-purple-500 to-pink-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:shadow-lg hover:shadow-purple-500/20 transition">
                     ⚡ 升级Pro
                 </button>
-                <span class="text-gray-500" x-text="'ID: '+(userId||'...')"></span>
+                <button @click="doLogout()" x-show="wechatNickname"
+                    class="text-gray-500 hover:text-gray-300 text-xs transition">退出</button>
+                <span class="text-gray-500" x-show="!wechatNickname" x-text="'ID: '+(userId||'...')"></span>
             </div>
         </div>
     </div>
@@ -992,20 +1025,124 @@
         </div>
     </main>
 
-    <!-- ====== 激活 / 付费弹窗 ====== -->
-    <div x-show="showActivateModal" x-transition.opacity class="modal-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" @click.self="showActivateModal=false">
-        <div class="modal-panel glass-card rounded-2xl p-6 w-full max-w-md mx-4">
-            <!-- 标签切换 -->
-            <div class="flex gap-1 bg-white/5 rounded-xl p-1 mb-6">
-                <button @click="activateTab='code'" :class="activateTab==='code' ? 'bg-purple-500/20 text-purple-400' : 'text-gray-400 hover:text-gray-200'"
-                    class="flex-1 px-4 py-2 rounded-lg text-sm font-medium transition">🔑 激活码</button>
-                <button @click="activateTab='pay'" :class="activateTab==='pay' ? 'bg-purple-500/20 text-purple-400' : 'text-gray-400 hover:text-gray-200'"
-                    class="flex-1 px-4 py-2 rounded-lg text-sm font-medium transition">💳 购买</button>
+    <!-- ====== 付费弹窗 v2 — 多方案选择 ====== -->
+    <div x-show="showPricingModal" x-transition.opacity class="modal-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" @click.self="showPricingModal=false">
+        <div class="modal-panel glass-card rounded-2xl p-6 w-full max-w-lg mx-4 max-h-[85vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold text-white">💎 升级套餐</h3>
+                <button @click="showPricingModal=false" class="text-gray-500 hover:text-gray-300 text-xl">&times;</button>
+            </div>
+
+            <!-- 套餐标签切换 -->
+            <div class="flex gap-1 bg-white/5 rounded-xl p-1 mb-5">
+                <button @click="pricingTab='subscribe'" :class="pricingTab==='subscribe' ? 'bg-purple-500/20 text-purple-400' : 'text-gray-400 hover:text-gray-200'"
+                    class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">📅 订阅</button>
+                <button @click="pricingTab='lifetime'" :class="pricingTab==='lifetime' ? 'bg-purple-500/20 text-purple-400' : 'text-gray-400 hover:text-gray-200'"
+                    class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">♾️ 永久</button>
+                <button @click="pricingTab='credits'" :class="pricingTab==='credits' ? 'bg-purple-500/20 text-purple-400' : 'text-gray-400 hover:text-gray-200'"
+                    class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">💰 点数</button>
+                <button @click="pricingTab='code'" :class="pricingTab==='code' ? 'bg-purple-500/20 text-purple-400' : 'text-gray-400 hover:text-gray-200'"
+                    class="flex-1 px-3 py-2 rounded-lg text-sm font-medium transition">🔑 激活码</button>
+            </div>
+
+            <!-- 订阅方案 -->
+            <div x-show="pricingTab==='subscribe'" class="space-y-3">
+                <!-- 试用提醒 -->
+                <div x-show="planBadge==='free' && isWechatConfigured && !wechatNickname" class="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-sm">
+                    <p class="text-amber-400 font-medium mb-1">💡 微信登录即享30天免费试用</p>
+                    <p class="text-amber-300/70 text-xs">每天5次AI功能，无需付费</p>
+                    <button @click="wechatLogin()" class="mt-2 w-full bg-green-500/20 text-green-400 border border-green-500/30 px-4 py-2 rounded-lg text-xs font-medium hover:bg-green-500/30 transition">💬 微信登录，立即试用</button>
+                </div>
+
+                <!-- Pro月付 -->
+                <div class="price-card bg-white/3 border border-purple-500/20 rounded-xl p-4 transition relative">
+                    <div class="absolute top-3 right-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs px-2 py-0.5 rounded-full">推荐</div>
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <p class="font-bold text-white">Pro 月付</p>
+                            <p class="text-xs text-gray-400">无限AI功能，按月订阅</p>
+                        </div>
+                        <p class="text-lg font-bold text-purple-400">¥29.9<span class="text-xs text-gray-400">/月</span></p>
+                    </div>
+                    <div class="flex flex-wrap gap-1 text-xs text-gray-400 mb-3">
+                        <span class="px-2 py-0.5 rounded bg-purple-500/10">♾️ 无限改写</span>
+                        <span class="px-2 py-0.5 rounded bg-purple-500/10">🖼️ 无限搜图</span>
+                        <span class="px-2 py-0.5 rounded bg-purple-500/10">📊 10次分析/天</span>
+                    </div>
+                </div>
+
+                <!-- Pro年付 -->
+                <div class="price-card bg-white/3 border border-white/5 rounded-xl p-4 transition">
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <p class="font-bold text-white">Pro 年付 <span class="text-xs text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded">省45%</span></p>
+                            <p class="text-xs text-gray-400">相当于 ¥16.6/月</p>
+                        </div>
+                        <p class="text-lg font-bold text-green-400">¥199<span class="text-xs text-gray-400">/年</span></p>
+                    </div>
+                    <div class="flex flex-wrap gap-1 text-xs text-gray-400">
+                        <span class="px-2 py-0.5 rounded bg-purple-500/10">♾️ 无限改写</span>
+                        <span class="px-2 py-0.5 rounded bg-purple-500/10">🖼️ 无限搜图</span>
+                        <span class="px-2 py-0.5 rounded bg-purple-500/10">📊 10次分析/天</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 永久方案 -->
+            <div x-show="pricingTab==='lifetime'" class="space-y-3">
+                <div class="price-card bg-gradient-to-r from-amber-500/10 to-purple-500/10 border border-amber-500/20 rounded-xl p-4 transition relative">
+                    <div class="absolute top-3 right-3 bg-gradient-to-r from-amber-400 to-orange-500 text-white text-xs px-2 py-0.5 rounded-full">超值</div>
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <p class="font-bold text-white">永久版</p>
+                            <p class="text-xs text-gray-400">一次购买，终身使用</p>
+                        </div>
+                        <p class="text-lg font-bold text-amber-400">¥99</p>
+                    </div>
+                    <div class="flex flex-wrap gap-1 text-xs text-gray-400 mb-3">
+                        <span class="px-2 py-0.5 rounded bg-amber-500/10">♾️ 无限改写</span>
+                        <span class="px-2 py-0.5 rounded bg-amber-500/10">🖼️ 无限搜图</span>
+                        <span class="px-2 py-0.5 rounded bg-amber-500/10">📊 10次分析/天</span>
+                        <span class="px-2 py-0.5 rounded bg-amber-500/10">🔒 永久有效</span>
+                    </div>
+                    <p class="text-xs text-amber-300/70">≈ 不到3个月月费，就永久使用</p>
+                </div>
+            </div>
+
+            <!-- 点数方案 -->
+            <div x-show="pricingTab==='credits'" class="space-y-3">
+                <div class="price-card bg-white/3 border border-cyan-500/20 rounded-xl p-4 transition">
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <p class="font-bold text-white">50次点数包</p>
+                            <p class="text-xs text-gray-400">每次仅 ¥0.2 • 用完即止</p>
+                        </div>
+                        <p class="text-lg font-bold text-cyan-400">¥9.9</p>
+                    </div>
+                    <div class="flex flex-wrap gap-1 text-xs text-gray-400">
+                        <span class="px-2 py-0.5 rounded bg-cyan-500/10">✍️ 50次改写</span>
+                        <span class="px-2 py-0.5 rounded bg-cyan-500/10">🖼️ 50次搜图</span>
+                    </div>
+                </div>
+                <div class="price-card bg-white/3 border border-cyan-500/20 rounded-xl p-4 transition relative">
+                    <div class="absolute top-3 right-3 bg-cyan-500/20 text-cyan-400 text-xs px-2 py-0.5 rounded-full">最划算</div>
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <p class="font-bold text-white">200次点数包</p>
+                            <p class="text-xs text-gray-400">每次仅 ¥0.15 • 用完即止</p>
+                        </div>
+                        <p class="text-lg font-bold text-cyan-400">¥29.9</p>
+                    </div>
+                    <div class="flex flex-wrap gap-1 text-xs text-gray-400">
+                        <span class="px-2 py-0.5 rounded bg-cyan-500/10">✍️ 200次改写</span>
+                        <span class="px-2 py-0.5 rounded bg-cyan-500/10">🖼️ 200次搜图</span>
+                    </div>
+                </div>
             </div>
 
             <!-- 激活码输入 -->
-            <div x-show="activateTab==='code'" class="space-y-4">
-                <p class="text-sm text-gray-400">输入激活码，立即解锁Pro版</p>
+            <div x-show="pricingTab==='code'" class="space-y-4">
+                <p class="text-sm text-gray-400">输入激活码，立即解锁套餐</p>
                 <input x-model="activateCode" type="text" placeholder="CTB-XXXX-XXXX-XXXX"
                     class="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white text-center text-lg tracking-widest uppercase outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20"
                     @keydown.enter="doActivate()">
@@ -1015,45 +1152,16 @@
                     <span x-show="activating" class="pulse">激活中...</span>
                 </button>
                 <p x-show="activateError" class="text-red-400 text-xs text-center" x-text="activateError"></p>
-                <p x-show="activateSuccess" class="text-green-400 text-xs text-center">✅ 激活成功！刷新页面生效</p>
+                <p x-show="activateSuccess" class="text-green-400 text-xs text-center">✅ 激活成功！</p>
             </div>
 
-            <!-- 购买页 -->
-            <div x-show="activateTab==='pay'" class="space-y-4 text-center">
-                <p class="text-sm text-gray-400">扫码支付后获取激活码</p>
-                <div class="bg-white rounded-xl p-4 mx-auto w-48 h-48 flex items-center justify-center">
-                    <!-- 占位二维码 — 后续替换为真实收款码 -->
+            <!-- 支付引导 -->
+            <div class="mt-5 pt-4 border-t border-white/5 text-center">
+                <p class="text-xs text-gray-500">📱 扫码支付后联系客服获取激活码</p>
+                <div class="bg-white rounded-xl p-4 mx-auto w-36 h-36 flex items-center justify-center mt-2">
                     <div class="text-center text-gray-300 text-xs">
-                        <div class="text-6xl mb-2">📱</div>
-                        <p>微信/支付宝</p>
-                        <p class="mt-1 text-purple-400">¥29.9/月</p>
-                    </div>
-                </div>
-                <p class="text-xs text-gray-500">支付后联系客服获取激活码</p>
-                <button @click="activateTab='code'" class="text-sm text-purple-400 hover:text-purple-300 transition">
-                    ← 已有激活码？去激活
-                </button>
-            </div>
-
-            <!-- 关闭按钮 -->
-            <button @click="showActivateModal=false" class="absolute top-4 right-4 text-gray-500 hover:text-gray-300 text-xl leading-none">&times;</button>
-
-            <!-- 价格卡片对比 -->
-            <div class="mt-6 pt-6 border-t border-white/5">
-                <div class="grid grid-cols-2 gap-3">
-                    <div class="price-card bg-white/3 border border-white/5 rounded-xl p-4 text-center transition">
-                        <p class="text-xs text-gray-400 mb-1">免费版</p>
-                        <p class="text-lg font-bold text-white">¥0</p>
-                        <p class="text-xs text-gray-500 mt-2">✍️ 改写 3次/天</p>
-                        <p class="text-xs text-gray-500">🖼️ 搜图 3次/天</p>
-                    </div>
-                    <div class="price-card bg-purple-500/10 border border-purple-500/20 rounded-xl p-4 text-center transition relative overflow-hidden">
-                        <div class="absolute top-0 right-0 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs px-2 py-0.5 rounded-bl-lg">推荐</div>
-                        <p class="text-xs text-purple-400 mb-1">Pro版</p>
-                        <p class="text-lg font-bold text-white">¥29.9<span class="text-xs text-gray-400">/月</span></p>
-                        <p class="text-xs text-purple-300 mt-2">♾️ 改写 无限</p>
-                        <p class="text-xs text-purple-300">♾️ 搜图 无限</p>
-                        <p class="text-xs text-purple-300">📊 AI分析 10次/天</p>
+                        <div class="text-5xl mb-1">📱</div>
+                        <p>微信支付</p>
                     </div>
                 </div>
             </div>
@@ -1074,14 +1182,22 @@
             return {
                 tab: 'hot',
 
-                // ===== 用户 & 付费 =====
+                // ===== 用户 & 付费 v2 =====
                 userId: '',
                 userPlan: 'free',
+                planBadge: 'basic',
+                planName: '免费版',
                 userExpires: '',
-                userLimits: { rewrite: 3, image_search: 3, hotboard_analyze: 3 },
-                userUsed: { rewrite: 0, image_search: 0, hotboard_analyze: 0 },
-                showActivateModal: false,
-                activateTab: 'code',
+                userLimits: {},
+                userLimitsInt: {},  // 转为整数的限额（显示用）
+                userUsed: {},
+                creditsBalance: 0,
+                wechatNickname: '',
+                wechatAvatar: '',
+                isWechatConfigured: false,
+                trialDaysLeft: null,
+                showPricingModal: false,
+                pricingTab: 'subscribe',
                 activateCode: '',
                 activating: false,
                 activateError: '',
@@ -1500,16 +1616,33 @@
                     this.ideaLoading = false;
                 },
 
-                // ===== 用户方法 =====
+                // ===== 用户方法 v2 =====
                 async loadUserStatus() {
                     try {
                         const r = await fetch(`${API_BASE}/api/auth/status`);
                         const d = await r.json();
                         this.userId = d.user_id || '';
                         this.userPlan = d.plan || 'free';
+                        this.planBadge = d.plan_badge || (d.plan === 'pro' ? 'pro' : 'basic');
+                        this.planName = d.plan_name || '免费版';
                         this.userExpires = d.expires_at ? d.expires_at.slice(0, 10) : '';
-                        this.userLimits = d.limits || { rewrite: 3, image_search: 3, hotboard_analyze: 3 };
+                        this.userLimits = d.limits || {};
+                        // 转换限额为整数（处理"无限"字符串）
+                        this.userLimitsInt = {};
+                        for (const [k, v] of Object.entries(d.limits || {})) {
+                            this.userLimitsInt[k] = v === '无限' ? Infinity : parseInt(v) || 3;
+                        }
                         this.userUsed = d.today_usage || {};
+                        this.creditsBalance = d.credits_balance || 0;
+                        this.wechatNickname = d.wechat_nickname || '';
+                        this.wechatAvatar = d.wechat_avatar || '';
+                        this.isWechatConfigured = d.is_wechat_configured || false;
+                        this.trialDaysLeft = d.trial_days_left !== undefined ? d.trial_days_left : null;
+
+                        // 检测微信登录回调
+                        if (window.location.search.includes('wechat_login=1')) {
+                            window.history.replaceState({}, '', '/');
+                        }
                     } catch (e) {
                         console.error('Load user status error:', e);
                     }
@@ -1533,13 +1666,12 @@
                         const d = await r.json();
                         if (d.success) {
                             this.activateSuccess = true;
-                            this.userPlan = 'pro';
-                            this.userExpires = d.expires_at || '';
-                            setTimeout(() => {
-                                this.showActivateModal = false;
+                            this.activateError = '';
+                            setTimeout(async () => {
+                                this.showPricingModal = false;
                                 this.activateSuccess = false;
                                 this.activateCode = '';
-                                this.loadUserStatus();
+                                await this.loadUserStatus();
                             }, 1500);
                         } else {
                             this.activateError = d.error || '激活失败';
@@ -1550,16 +1682,47 @@
                     this.activating = false;
                 },
 
-                // 用量检查包装器 — 在 API 调用前先检查，超限则弹窗
+                // 微信登录
+                async wechatLogin() {
+                    try {
+                        const r = await fetch(`${API_BASE}/api/auth/wechat/url`);
+                        const d = await r.json();
+                        if (d.success && d.url) {
+                            // 在新窗口打开微信授权（桌面端扫码）
+                            const w = window.open(d.url, 'wechat_login', 'width=500,height=600');
+                            if (!w) {
+                                // 被拦截，直接跳转
+                                window.location.href = d.url;
+                            }
+                        } else {
+                            alert('微信登录暂未配置');
+                        }
+                    } catch (e) {
+                        console.error('WeChat login error:', e);
+                    }
+                },
+
+                // 退出登录
+                async doLogout() {
+                    try {
+                        await fetch(`${API_BASE}/api/auth/logout`);
+                    } catch (e) {}
+                    this.wechatNickname = '';
+                    this.wechatAvatar = '';
+                    this.trialDaysLeft = null;
+                    await this.loadUserStatus();
+                },
+
+                // 用量检查包装器 v2
                 async checkBeforeUse(action, fn) {
                     await this.loadUserStatus();
-                    if (this.userPlan === 'pro') {
+                    if (this.planBadge === 'pro' || this.planBadge === 'credits') {
                         return await fn();
                     }
                     const used = this.userUsed[action] || 0;
-                    const limit = this.userLimits[action] || 3;
+                    const limit = this.userLimitsInt[action] || 3;
                     if (used >= limit) {
-                        this.showActivateModal = true;
+                        this.showPricingModal = true;
                         throw new Error('LIMIT_EXCEEDED');
                     }
                     const result = await fn();

@@ -1,14 +1,91 @@
 """
-Creator AI Toolbox - 用户系统 & 付费模块
-SQLite 数据库：用户表、激活码表、使用记录表
+Creator AI Toolbox - 用户系统 & 付费模块 v2
+- 微信OAuth登录
+- 多级付费：free / trial(首月免费) / pro_monthly / pro_yearly / pro_lifetime / credits
+- SQLite 数据库
 """
 import sqlite3
 import uuid
 import hashlib
 import os
+import requests
 from datetime import datetime, timedelta
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "toolbox.db")
+
+# ========== 微信配置 ==========
+WECHAT_APPID = os.environ.get("WECHAT_APPID", "")
+WECHAT_SECRET = os.environ.get("WECHAT_SECRET", "")
+ADMIN_KEY = os.environ.get("ADMIN_KEY", "creator2026")
+
+# ========== 套餐定义 ==========
+PLANS = {
+    "free": {
+        "name": "免费版",
+        "price": "¥0",
+        "price_num": 0,
+        "duration_days": 0,
+        "limits": {"rewrite": 3, "image_search": 3, "hotboard_analyze": 3},
+        "description": "游客模式，无需登录",
+        "badge": "basic",
+    },
+    "trial": {
+        "name": "新用户体验",
+        "price": "¥0",
+        "price_num": 0,
+        "duration_days": 30,
+        "limits": {"rewrite": 5, "image_search": 5, "hotboard_analyze": 5},
+        "description": "微信登录即享30天免费试用，每天5次AI功能",
+        "badge": "trial",
+    },
+    "pro_monthly": {
+        "name": "Pro月付",
+        "price": "¥29.9/月",
+        "price_num": 29.9,
+        "duration_days": 30,
+        "limits": {"rewrite": float("inf"), "image_search": float("inf"), "hotboard_analyze": 10},
+        "description": "无限AI改写、无限搜图",
+        "badge": "pro",
+    },
+    "pro_yearly": {
+        "name": "Pro年付",
+        "price": "¥199/年",
+        "price_num": 199,
+        "duration_days": 365,
+        "limits": {"rewrite": float("inf"), "image_search": float("inf"), "hotboard_analyze": 10},
+        "description": "年付省45%，相当于¥16.6/月",
+        "badge": "pro",
+    },
+    "pro_lifetime": {
+        "name": "永久版",
+        "price": "¥99",
+        "price_num": 99,
+        "duration_days": 36500,
+        "limits": {"rewrite": float("inf"), "image_search": float("inf"), "hotboard_analyze": 10},
+        "description": "一次购买，永久使用",
+        "badge": "pro",
+    },
+    "credits_50": {
+        "name": "50次点数包",
+        "price": "¥9.9",
+        "price_num": 9.9,
+        "duration_days": 0,
+        "limits": {},
+        "credits": 50,
+        "description": "适合轻度使用，用完即止",
+        "badge": "credits",
+    },
+    "credits_200": {
+        "name": "200次点数包",
+        "price": "¥29.9",
+        "price_num": 29.9,
+        "duration_days": 0,
+        "limits": {},
+        "credits": 200,
+        "description": "最受欢迎，每次仅¥0.15",
+        "badge": "credits",
+    },
+}
 
 
 def get_db():
@@ -23,7 +100,7 @@ def get_db():
 
 
 def _init_tables(conn):
-    """初始化表结构"""
+    """初始化表结构 v2 — 支持微信登录 + 试用 + 点数"""
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
@@ -31,14 +108,20 @@ def _init_tables(conn):
             activation_code TEXT,
             activated_at TEXT,
             expires_at TEXT,
+            trial_started_at TEXT,
+            wechat_openid TEXT UNIQUE,
+            wechat_nickname TEXT,
+            wechat_avatar TEXT,
+            credits_balance INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             last_seen TEXT
         );
 
         CREATE TABLE IF NOT EXISTS activation_codes (
             code TEXT PRIMARY KEY,
-            plan TEXT NOT NULL DEFAULT 'pro',
-            duration_days INTEGER NOT NULL DEFAULT 365,
+            plan TEXT NOT NULL DEFAULT 'pro_monthly',
+            duration_days INTEGER NOT NULL DEFAULT 30,
+            credits INTEGER NOT NULL DEFAULT 0,
             batch_id TEXT,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             used_by TEXT,
@@ -62,11 +145,141 @@ def _init_tables(conn):
             ON activation_codes(batch_id);
     """)
 
+    # 兼容老数据库：逐个补齐新字段
+    _safe_add_column(conn, "users", "trial_started_at", "TEXT")
+    _safe_add_column(conn, "users", "wechat_openid", "TEXT")
+    _safe_add_column(conn, "users", "wechat_nickname", "TEXT")
+    _safe_add_column(conn, "users", "wechat_avatar", "TEXT")
+    _safe_add_column(conn, "users", "credits_balance", "INTEGER NOT NULL DEFAULT 0")
+    _safe_add_column(conn, "activation_codes", "credits", "INTEGER NOT NULL DEFAULT 0")
+
+    # 索引：安全创建（旧表可能没有 wechat_openid 列）
+    _safe_create_index(conn, "idx_users_wechat", "users", "wechat_openid")
+
+
+def _safe_add_column(conn, table, column, typedef):
+    """安全添加列 — 忽略已存在的列"""
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {typedef}")
+    except sqlite3.OperationalError as e:
+        if "duplicate column" not in str(e).lower():
+            raise
+
+
+def _safe_create_index(conn, idx_name, table, column):
+    """安全创建索引"""
+    try:
+        conn.execute(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table}({column})")
+    except sqlite3.OperationalError:
+        pass  # 列不存在时跳过
+
+
+# ========== 微信 OAuth ==========
+
+def get_wechat_oauth_url(redirect_uri=None):
+    """生成微信OAuth授权URL"""
+    if not WECHAT_APPID:
+        return None
+    if not redirect_uri:
+        redirect_uri = os.environ.get("WECHAT_REDIRECT_URI", "")
+    if not redirect_uri:
+        return None
+    state = uuid.uuid4().hex[:16]
+    url = (
+        f"https://open.weixin.qq.com/connect/oauth2/authorize"
+        f"?appid={WECHAT_APPID}"
+        f"&redirect_uri={redirect_uri}"
+        f"&response_type=code"
+        f"&scope=snsapi_userinfo"
+        f"&state={state}"
+        f"#wechat_redirect"
+    )
+    return url, state
+
+
+def wechat_get_userinfo(code):
+    """用code换取access_token和用户信息"""
+    if not WECHAT_APPID or not WECHAT_SECRET:
+        return None, "微信未配置"
+
+    # Step 1: code → access_token + openid
+    token_url = (
+        f"https://api.weixin.qq.com/sns/oauth2/access_token"
+        f"?appid={WECHAT_APPID}"
+        f"&secret={WECHAT_SECRET}"
+        f"&code={code}"
+        f"&grant_type=authorization_code"
+    )
+    try:
+        r = requests.get(token_url, timeout=10)
+        data = r.json()
+        if "errcode" in data and data["errcode"] != 0:
+            return None, data.get("errmsg", "微信授权失败")
+        access_token = data.get("access_token")
+        openid = data.get("openid")
+        if not openid:
+            return None, "未获取到openid"
+
+        # Step 2: access_token + openid → userinfo
+        userinfo_url = (
+            f"https://api.weixin.qq.com/sns/userinfo"
+            f"?access_token={access_token}"
+            f"&openid={openid}"
+            f"&lang=zh_CN"
+        )
+        r2 = requests.get(userinfo_url, timeout=10)
+        uinfo = r2.json()
+        if "errcode" in uinfo and uinfo["errcode"] != 0:
+            # userinfo失败，至少返回openid
+            return {"openid": openid, "nickname": "微信用户", "headimgurl": ""}, None
+
+        return {
+            "openid": openid,
+            "nickname": uinfo.get("nickname", "微信用户"),
+            "headimgurl": uinfo.get("headimgurl", ""),
+        }, None
+    except Exception as e:
+        return None, str(e)
+
+
+def get_or_create_wechat_user(openid, nickname="", avatar=""):
+    """微信登录：查找或创建用户，新用户自动进入试用期"""
+    db = get_db()
+    user = db.execute(
+        "SELECT * FROM users WHERE wechat_openid = ?", (openid,)
+    ).fetchone()
+
+    if user:
+        user = dict(user)
+        # 更新昵称和头像
+        db.execute(
+            "UPDATE users SET wechat_nickname = ?, wechat_avatar = ?, last_seen = datetime('now') WHERE id = ?",
+            (nickname or user.get("wechat_nickname", ""),
+             avatar or user.get("wechat_avatar", ""),
+             user["id"])
+        )
+        db.commit()
+        return user
+
+    # 新用户 → 创建并进入试用期
+    new_id = f"wx_{uuid.uuid4().hex[:10]}"
+    now = datetime.now().isoformat()
+    trial_ends = (datetime.now() + timedelta(days=30)).isoformat()
+
+    db.execute(
+        """INSERT INTO users (id, plan, wechat_openid, wechat_nickname, wechat_avatar,
+           trial_started_at, expires_at, created_at, last_seen)
+           VALUES (?, 'trial', ?, ?, ?, ?, ?, ?, ?)""",
+        (new_id, openid, nickname, avatar, now, trial_ends, now, now)
+    )
+    db.commit()
+    return dict(db.execute("SELECT * FROM users WHERE id = ?", (new_id,)).fetchone())
+
 
 # ========== 用户操作 ==========
 
 def get_or_create_user(user_id=None):
-    """获取或创建用户（基于 IP 匿名用户，激活后绑定）"""
+    """获取或创建匿名用户"""
     db = get_db()
     if user_id:
         user = db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
@@ -75,7 +288,6 @@ def get_or_create_user(user_id=None):
             db.commit()
             return dict(user)
 
-    # 创建新匿名用户
     new_id = f"anon_{uuid.uuid4().hex[:12]}"
     db.execute("INSERT INTO users (id, plan) VALUES (?, 'free')", (new_id,))
     db.commit()
@@ -83,72 +295,157 @@ def get_or_create_user(user_id=None):
 
 
 def activate_user(user_id, activation_code):
-    """激活用户会员"""
+    """激活用户会员（支持多种套餐 + 点数包）"""
     db = get_db()
 
-    # 检查激活码
-    code = db.execute(
+    code = dict(db.execute(
         "SELECT * FROM activation_codes WHERE code = ? AND used_by IS NULL",
         (activation_code,)
-    ).fetchone()
+    ).fetchone())
 
     if not code:
         return False, "激活码无效或已被使用"
 
-    # 激活
     now = datetime.now()
-    expires = now + timedelta(days=code["duration_days"])
+    plan = code["plan"]
+    duration = code["duration_days"]
+    extra_credits = code.get("credits", 0)
 
-    db.execute(
-        "UPDATE users SET plan = ?, activation_code = ?, activated_at = ?, expires_at = ? WHERE id = ?",
-        (code["plan"], activation_code, now.isoformat(), expires.isoformat(), user_id)
-    )
+    # 计算到期时间
+    if duration > 0:
+        expires = now + timedelta(days=duration)
+    else:
+        expires = None  # 永久/点数包不过期
+
+    # 更新用户
+    if extra_credits > 0:
+        # 点数包：累加点数
+        db.execute(
+            "UPDATE users SET credits_balance = credits_balance + ?, activation_code = ?, activated_at = ? WHERE id = ?",
+            (extra_credits, activation_code, now.isoformat(), user_id)
+        )
+    elif plan.startswith("pro_"):
+        # Pro套餐：设置新计划 + 到期日
+        db.execute(
+            "UPDATE users SET plan = ?, activation_code = ?, activated_at = ?, expires_at = ? WHERE id = ?",
+            (plan, activation_code, now.isoformat(),
+             expires.isoformat() if expires else None, user_id)
+        )
+        # 若从试用升级，保留原有到期再叠加
+        if expires:
+            user = db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+            old_expires = user["expires_at"] if user else None
+            if old_expires:
+                try:
+                    old_dt = datetime.fromisoformat(old_expires)
+                    if old_dt > now:
+                        expires = old_dt + timedelta(days=duration)
+                        db.execute("UPDATE users SET expires_at = ? WHERE id = ?",
+                                   (expires.isoformat(), user_id))
+                except:
+                    pass
+
     db.execute(
         "UPDATE activation_codes SET used_by = ?, used_at = ? WHERE code = ?",
         (user_id, now.isoformat(), activation_code)
     )
     db.commit()
 
-    return True, {
-        "plan": code["plan"],
-        "expires_at": expires.strftime("%Y-%m-%d"),
-        "duration_days": code["duration_days"]
+    plan_info = PLANS.get(plan, {})
+    result = {
+        "plan": plan,
+        "plan_name": plan_info.get("name", plan),
+        "expires_at": expires.strftime("%Y-%m-%d") if expires else "永久",
+        "duration_days": duration,
+        "credits_added": extra_credits,
     }
+    return True, result
+
+
+def upgrade_user(user_id, plan_key):
+    """直接升级用户（用于测试/管理）"""
+    db = get_db()
+    plan = PLANS.get(plan_key)
+    if not plan:
+        return False, "无效套餐"
+
+    now = datetime.now()
+    days = plan.get("duration_days", 0)
+    expires = (now + timedelta(days=days)).isoformat() if days > 0 else None
+    credits = plan.get("credits", 0)
+
+    if credits > 0:
+        db.execute(
+            "UPDATE users SET credits_balance = credits_balance + ? WHERE id = ?",
+            (credits, user_id)
+        )
+    else:
+        db.execute(
+            "UPDATE users SET plan = ?, expires_at = ? WHERE id = ?",
+            (plan_key, expires, user_id)
+        )
+    db.commit()
+    return True, {"plan": plan_key, "expires_at": expires}
 
 
 def get_user_status(user_id):
-    """获取用户状态（含是否过期）"""
+    """获取用户状态（含试用到期检测、过期检测）"""
     db = get_db()
     user = db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
     if not user:
         return None
 
     user = dict(user)
-    # 检查是否过期
-    if user.get("expires_at"):
+    now = datetime.now()
+
+    # 检查试用过期
+    if user.get("plan") == "trial" and user.get("expires_at"):
         try:
-            expires = datetime.fromisoformat(user["expires_at"])
-            if expires < datetime.now():
+            if datetime.fromisoformat(user["expires_at"]) < now:
                 user["plan"] = "free"
                 user["expired"] = True
+                user["trial_ended"] = True
+                # 更新数据库
+                db.execute(
+                    "UPDATE users SET plan = 'free' WHERE id = ?", (user_id,)
+                )
+                db.commit()
             else:
-                user["expired"] = False
+                days_left = (datetime.fromisoformat(user["expires_at"]) - now).days
+                user["trial_days_left"] = max(0, days_left)
+        except:
+            pass
+
+    # 检查Pro过期
+    if user.get("plan", "").startswith("pro_") and user.get("expires_at"):
+        try:
+            if datetime.fromisoformat(user["expires_at"]) < now:
+                user["plan"] = "free"
+                user["expired"] = True
+                db.execute(
+                    "UPDATE users SET plan = 'free', expires_at = NULL WHERE id = ?",
+                    (user_id,)
+                )
+                db.commit()
         except:
             pass
 
     return user
 
 
-# ========== 用量统计 & 限流 ==========
+# ========== 用量统计 & 限流 v2 ==========
 
-# 免费用户每日限额
-FREE_LIMITS = {
-    "rewrite": 3,
-    "image_search": 3,
-    "hotboard_analyze": 3,
-}
+def get_user_limits(user):
+    """根据用户套餐返回限额"""
+    plan = user.get("plan", "free")
+    plan_def = PLANS.get(plan, PLANS["free"])
+    limits = plan_def.get("limits", {})
 
-ADMIN_KEY = os.environ.get("ADMIN_KEY", "creator2026")
+    # 试用期满5次/天
+    result = {}
+    for action in ["rewrite", "image_search", "hotboard_analyze"]:
+        result[action] = limits.get(action, PLANS["free"]["limits"].get(action, 3))
+    return result
 
 
 def get_today_usage(user_id, action=None):
@@ -169,13 +466,31 @@ def get_today_usage(user_id, action=None):
         return {r["action"]: r["cnt"] for r in rows}
 
 
+def get_credits_balance(user_id):
+    """获取点数余额"""
+    db = get_db()
+    user = db.execute("SELECT credits_balance FROM users WHERE id = ?", (user_id,)).fetchone()
+    return user["credits_balance"] if user else 0
+
+
+def consume_credit(user_id, amount=1):
+    """消费点数"""
+    db = get_db()
+    db.execute(
+        "UPDATE users SET credits_balance = MAX(0, credits_balance - ?) WHERE id = ?",
+        (amount, user_id)
+    )
+    db.commit()
+
+
 def check_and_record(user_id, action, ip="unknown"):
     """检查用量并记录。返回 (allowed, remaining, limit)"""
     db = get_db()
     user = dict(db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone())
+    plan = user.get("plan", "free")
 
-    # 付费用户不限
-    if user.get("plan") == "pro" and not _is_expired(user):
+    # Pro套餐：无限
+    if plan.startswith("pro_"):
         db.execute(
             "INSERT INTO usage_logs (user_id, action, ip) VALUES (?, ?, ?)",
             (user_id, action, ip)
@@ -183,8 +498,9 @@ def check_and_record(user_id, action, ip="unknown"):
         db.commit()
         return True, float("inf"), float("inf")
 
-    # 免费用户检查限额
-    limit = FREE_LIMITS.get(action, 3)
+    # 试用/免费：按日限额
+    limits = get_user_limits(user)
+    limit = limits.get(action, 3)
     today = datetime.now().strftime("%Y-%m-%d")
     used = db.execute(
         "SELECT COUNT(*) as cnt FROM usage_logs WHERE user_id = ? AND action = ? AND created_at >= ?",
@@ -203,34 +519,28 @@ def check_and_record(user_id, action, ip="unknown"):
     return True, limit - used - 1, limit
 
 
-def _is_expired(user):
-    """检查用户是否过期"""
-    if not user.get("expires_at"):
-        return False
-    try:
-        return datetime.fromisoformat(user["expires_at"]) < datetime.now()
-    except:
-        return False
-
-
 # ========== 激活码管理 ==========
 
-def generate_codes(count=10, plan="pro", duration_days=365, batch_id=None):
-    """生成激活码"""
+def generate_codes(count=10, plan="trial", duration_days=30, credits=0, batch_id=None):
+    """生成激活码（支持点数包）"""
     db = get_db()
     if not batch_id:
         batch_id = datetime.now().strftime("%Y%m%d%H%M")
 
     codes = []
     for _ in range(count):
-        # 生成 16 位字母数字码，排除易混淆字符
         raw = hashlib.sha256(uuid.uuid4().hex.encode()).hexdigest()[:12].upper()
         code = "CTB-" + raw[:4] + "-" + raw[4:8] + "-" + raw[8:12]
         db.execute(
-            "INSERT INTO activation_codes (code, plan, duration_days, batch_id) VALUES (?, ?, ?, ?)",
-            (code, plan, duration_days, batch_id)
+            "INSERT INTO activation_codes (code, plan, duration_days, credits, batch_id) VALUES (?, ?, ?, ?, ?)",
+            (code, plan, duration_days, credits, batch_id)
         )
-        codes.append(code)
+        codes.append({
+            "code": code,
+            "plan": PLANS.get(plan, {}).get("name", plan),
+            "duration_days": duration_days,
+            "credits": credits,
+        })
 
     db.commit()
     return {"batch_id": batch_id, "count": len(codes), "codes": codes}

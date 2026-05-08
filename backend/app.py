@@ -21,11 +21,8 @@ CORS(app)
 import user_system as us
 
 # ========== 配置 ==========
-# 付费套餐信息（前端展示用）
-PLAN_INFO = {
-    "free": {"name": "免费版", "price": "¥0", "rewrite": 3, "image_search": 3, "analyze": 3},
-    "pro":  {"name": "Pro版", "price": "¥29.9/月", "rewrite": "无限", "image_search": "无限", "analyze": 10},
-}
+# 付费套餐信息（前端展示用）— 统一从 user_system 取
+PLAN_INFO = us.PLANS
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "rewrite_api_key.json")
 TOUTIAO_COOKIE_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "toutiao_cookies.json")
 
@@ -120,7 +117,7 @@ def check_usage(action):
     allowed, remaining, limit = us.check_and_record(
         uid, action, request.remote_addr or "unknown"
     )
-    return allowed, {"remaining": remaining, "limit": limit}
+    return allowed, {"remaining": remaining, "limit": limit, "action": action}
 
 
 def make_user_response(user_id, data=None):
@@ -139,24 +136,45 @@ def make_user_response(user_id, data=None):
 
 @app.route("/api/auth/status")
 def api_auth_status():
-    """获取当前用户状态（用量、套餐）"""
+    """获取当前用户状态（套餐、试用、点数、微信信息）"""
     user, uid = require_user()
     status = us.get_user_status(uid) or user
 
-    return make_user_response(uid, {
+    plan = status.get("plan", "free")
+    plan_info = PLAN_INFO.get(plan, PLAN_INFO["free"])
+
+    # 构建限额信息
+    if plan_info.get("limits"):
+        limits = {k: ("无限" if v == float("inf") else v) for k, v in plan_info["limits"].items()}
+    else:
+        limits = {}
+
+    resp_data = {
         "user_id": uid[:16],
-        "plan": status.get("plan", "free"),
+        "plan": plan,
+        "plan_name": plan_info.get("name", plan),
+        "plan_badge": plan_info.get("badge", "basic"),
         "activated": status.get("activation_code") is not None,
         "expires_at": status.get("expires_at"),
         "expired": status.get("expired", False),
+        "trial_days_left": status.get("trial_days_left"),
+        "trial_ended": status.get("trial_ended", False),
         "today_usage": us.get_today_usage(uid),
-        "limits": {
-            "rewrite": us.FREE_LIMITS.get("rewrite", 3),
-            "image_search": us.FREE_LIMITS.get("image_search", 3),
-            "hotboard_analyze": us.FREE_LIMITS.get("hotboard_analyze", 3),
+        "limits": limits,
+        "credits_balance": status.get("credits_balance", 0),
+        "wechat_nickname": status.get("wechat_nickname"),
+        "wechat_avatar": status.get("wechat_avatar"),
+        "all_plans": {
+            k: {"name": v["name"], "price": v["price"], "price_num": v["price_num"],
+                "duration_days": v["duration_days"], "description": v["description"],
+                "badge": v["badge"],
+                "limits": {ak: ("无限" if av == float("inf") else av) for ak, av in v.get("limits", {}).items()},
+                "credits": v.get("credits", 0)}
+            for k, v in PLAN_INFO.items()
         },
-        "plan_info": PLAN_INFO.get(status.get("plan", "free"), PLAN_INFO["free"]),
-    })
+        "is_wechat_configured": bool(us.WECHAT_APPID),
+    }
+    return make_user_response(uid, resp_data)
 
 
 @app.route("/api/auth/activate", methods=["POST"])
@@ -177,6 +195,84 @@ def api_auth_activate():
     return make_user_response(uid, {"success": True, **result})
 
 
+# ========== 微信登录 API ==========
+
+@app.route("/api/auth/wechat/url")
+def api_auth_wechat_url():
+    """获取微信OAuth授权URL（前端打开/生成二维码）"""
+    result = us.get_wechat_oauth_url()
+    if result is None:
+        return jsonify({"success": False, "error": "微信登录未配置，请设置 WECHAT_APPID"})
+    url, state = result
+    return jsonify({"success": True, "url": url, "state": state})
+
+
+@app.route("/api/auth/wechat/callback")
+def api_auth_wechat_callback():
+    """微信OAuth回调"""
+    code = request.args.get("code", "")
+    state = request.args.get("state", "")
+
+    if not code:
+        return "<h3>授权失败</h3><p>未获取到授权码</p>", 400
+
+    userinfo, error = us.wechat_get_userinfo(code)
+    if error:
+        return f"<h3>微信授权失败</h3><p>{error}</p>", 400
+
+    openid = userinfo["openid"]
+    user = us.get_or_create_wechat_user(
+        openid,
+        nickname=userinfo.get("nickname", ""),
+        avatar=userinfo.get("headimgurl", "")
+    )
+
+    # 设置Cookie，跳转回首页
+    resp = app.make_response("""
+    <html><head><meta charset="utf-8"><title>登录成功</title></head>
+    <body style="font-family:sans-serif;text-align:center;padding-top:80px;background:#0a0a1a;color:#e2e8f0;">
+        <h2>✅ 登录成功！</h2>
+        <p>正在跳转...</p>
+        <script>setTimeout(function(){window.location.href='/?wechat_login=1';},800);</script>
+    </body></html>
+    """)
+    resp.set_cookie("toolbox_uid", user["id"],
+                    max_age=365*24*3600, httponly=False, samesite="Lax")
+    return resp
+
+
+@app.route("/api/auth/logout")
+def api_auth_logout():
+    """退出登录"""
+    resp = jsonify({"success": True, "message": "已退出"})
+    resp.set_cookie("toolbox_uid", "", max_age=0)
+    return resp
+
+
+# ========== 套餐信息 API ==========
+
+@app.route("/api/plans")
+def api_plans():
+    """获取所有套餐信息"""
+    return jsonify({
+        "plans": {
+            k: {
+                "key": k,
+                "name": v["name"],
+                "price": v["price"],
+                "price_num": v["price_num"],
+                "duration_days": v["duration_days"],
+                "description": v["description"],
+                "badge": v["badge"],
+                "limits": {ak: ("无限" if av == float("inf") else av)
+                          for ak, av in v.get("limits", {}).items()},
+                "credits": v.get("credits", 0),
+            }
+            for k, v in PLAN_INFO.items()
+        }
+    })
+
+
 # ========== 管理后台 API ==========
 
 @app.route("/api/admin/generate-codes", methods=["POST"])
@@ -189,14 +285,16 @@ def api_admin_generate_codes():
         return jsonify({"success": False, "error": "无权限"}), 403
 
     count = int(data.get("count", 10))
-    plan = data.get("plan", "pro")
-    days = int(data.get("duration_days", 365))
+    plan = data.get("plan", "pro_monthly")
+    days = int(data.get("duration_days", 30))
+    credits = int(data.get("credits", 0))
     batch = data.get("batch_id", "")
 
     result = us.generate_codes(
         count=min(count, 100),
         plan=plan,
         duration_days=days,
+        credits=credits,
         batch_id=batch if batch else None
     )
     return jsonify({"success": True, **result, "stats": us.get_code_stats()})
