@@ -232,6 +232,78 @@ def api_auth_logout():
     return resp
 
 
+# ========== 支付确认 API ==========
+
+@app.route("/api/auth/pay-confirm", methods=["POST"])
+def api_auth_pay_confirm():
+    """支付后自动开通 — 用户扫码付款后点击确认，系统按金额匹配套餐自动激活"""
+    data = request.get_json() or {}
+    amount = data.get("amount", 0)
+
+    # 必须登录
+    uid = get_user_id()
+    if not uid:
+        return jsonify({"success": False, "error": "请先登录"}), 401
+
+    user = us.get_or_create_user(uid)
+    if not user.get("username"):
+        return jsonify({"success": False, "error": "请先注册账号再升级"}), 400
+
+    # 按金额匹配套餐
+    amount = float(amount)
+    plan_key = None
+    # 精确匹配
+    for k, v in PLAN_INFO.items():
+        if v.get("price_num", 0) == amount:
+            plan_key = k
+            break
+
+    if not plan_key:
+        # 列出可选金额提示
+        prices = sorted(set(
+            str(v["price_num"]) for v in PLAN_INFO.values()
+            if v.get("price_num", 0) > 0
+        ))
+        return jsonify({
+            "success": False,
+            "error": f"未匹配到套餐，请输入正确金额。可选金额：{', '.join(prices)} 元",
+        }), 400
+
+    plan_info = PLAN_INFO[plan_key]
+
+    # 激活用户
+    if plan_info.get("credits", 0) > 0:
+        # 点数包：累加点数
+        db = us.get_db()
+        db.execute(
+            "UPDATE users SET credits_balance = credits_balance + ? WHERE id = ?",
+            (plan_info["credits"], uid)
+        )
+        db.commit()
+        result_msg = f"已到账 {plan_info['credits']} 次点数！"
+    else:
+        ok, result = us.upgrade_user(uid, plan_key)
+        if not ok:
+            return jsonify({"success": False, "error": str(result)}), 400
+        result_msg = f"已升级为 {plan_info['name']}！"
+
+    # 记录流水
+    db = us.get_db()
+    db.execute(
+        "INSERT INTO usage_logs (user_id, action, ip) VALUES (?, 'pay_confirm', ?)",
+        (uid, request.remote_addr or "unknown")
+    )
+    db.commit()
+
+    return make_user_response(uid, {
+        "success": True,
+        "message": result_msg,
+        "plan": plan_key,
+        "plan_name": plan_info["name"],
+        "amount": amount,
+    })
+
+
 # ========== 套餐信息 API ==========
 
 @app.route("/api/plans")
